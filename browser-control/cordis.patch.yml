@@ -1,0 +1,10 @@
+- insert:
+    - id: browser-control
+      name: dsh-browser-control
+      config:
+        headless: true
+        defaultTimeoutMs: 10000
+        navigationTimeoutMs: 30000
+        maxSnapshotChars: 24000
+        maxDiagnostics: 100
+        artifactDir: .dsh/qa-artifacts

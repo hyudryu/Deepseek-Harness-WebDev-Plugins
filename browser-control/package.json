@@ -1,0 +1,21 @@
+{
+  "name": "dsh-browser-control",
+  "version": "0.1.0",
+  "description": "Compact Playwright browser-control bundle for DeepSeek Harness coding agents",
+  "type": "module",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "skills/browser-control.md"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "playwright": "^1.62.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

@@ -1,0 +1,6 @@
+- insert:
+    - id: qa-testing
+      name: dsh-qa-testing
+      config:
+        maxFixAttemptsPerCheck: 3
+        maxPrBodyChars: 24000
