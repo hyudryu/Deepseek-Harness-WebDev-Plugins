@@ -150,9 +150,10 @@ function outputSchema() {
   return {
     type: 'object',
     additionalProperties: false,
+    required: ['ok', 'action'],
     properties: {
-      ok: { type: 'boolean', required: true },
-      action: { type: 'string', required: true },
+      ok: { type: 'boolean' },
+      action: { type: 'string' },
       url: { type: 'string' },
       title: { type: 'string' },
       snapshot: { type: 'string' },
@@ -166,10 +167,11 @@ function outputSchema() {
         items: {
           type: 'object',
           additionalProperties: false,
+          required: ['index', 'url', 'title'],
           properties: {
-            index: { type: 'integer', required: true },
-            url: { type: 'string', required: true },
-            title: { type: 'string', required: true },
+            index: { type: 'integer' },
+            url: { type: 'string' },
+            title: { type: 'string' },
           },
         },
       },
