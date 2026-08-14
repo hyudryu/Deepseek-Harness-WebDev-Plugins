@@ -1,0 +1,9 @@
+# Node.js
+node_modules/
+
+# DeepSeek Harness runtime artifacts
+.dsh/
+
+# OS / editor
+.DS_Store
+Thumbs.db
