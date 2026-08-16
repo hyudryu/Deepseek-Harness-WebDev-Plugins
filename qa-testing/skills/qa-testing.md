@@ -10,19 +10,20 @@ You are the QA coordinator. Your job is to derive a test plan from the actual pu
 
 Call `qa_pr` with `action: inspect` to resolve the current PR and its existing QA state.
 
-The returned `hasQaSection` (and `qaSectionHeading`) tells you whether the PR body already contains a QA/testing section. Matching is **loose**: any QA/testing heading counts — `## QA Testing`, `QA section`, `QA test`, `Test steps`, `Testing`, `Verification`, `Checklist`, and similar — in addition to this plugin's own machine-managed block.
+The returned `hasQaSection` (and `qaSectionHeading`) tells you whether the PR body already contains a QA/testing section. Matching is **loose**: any real QA/testing heading counts — `## QA Testing`, `QA section`, `QA test`, `Test steps`, `Testing`, `Verification`, `Checklist`, and similar — as well as this plugin's own machine-managed block. Code blocks are ignored, so example text is not mistaken for a section, and `qaSectionContent` gives you the text under the detected heading even when the full `body` is truncated.
 
-### 2. If the PR already has a QA/testing section, reuse it
+### 2. If the PR already has a usable QA/testing section, reuse it
 
-When `hasQaSection` is true, do **not** re-inspect the whole PR and re-derive a checklist from scratch. Treat the existing section as the authoritative test plan:
+When `hasQaSection` is true, you do **not** need to re-derive a checklist from scratch, but you must confirm the existing section is usable for the *current* change:
 
-- If it is this plugin's machine-managed `## QA Testing` block with a valid checklist that still matches the current change, reuse it. Continue/refresh statuses with `qa_pr` (or, if the user asked to continue, do not create duplicates).
-- If it is a hand-written QA/testing section (loose match, not machine-managed), carry its items into the machine-managed checklist with `qa_pr set_checklist`, mapping its checks to stable `QA-001`, `QA-002`, ... ids where possible. Preserve the section's intent; do not invent a parallel set of checks.
-- If the PR meaningfully changed since that section was authored (e.g. new commits on the head), regenerate the checklist and reset statuses.
+- **Machine-managed `## QA Testing` block (this plugin):** trusted. It records the tested head and REFUSES to attribute PASS/overall-PASS to any other head, so reuse/refresh its statuses with `qa_pr` directly if its checklist still matches the current change (or the user asked to continue).
+- **Hand-written section (loose match):** first confirm it is not stale before using it. Inspect the diff and changed files to check the section actually covers the current change. If the PR changed since that section was authored (e.g. new commits on the head) or the section does not cover the current change, regenerate the checklist instead of reusing. When it does cover the current change, carry its concrete items into the machine-managed checklist with `qa_pr set_checklist`, mapping checks to stable `QA-001`, `QA-002`, ... ids. Preserve the section's intent; do not invent a parallel set of checks.
 
-### 3. Only if the PR has NO QA/testing section, inspect and derive a checklist
+If the detected section has **no actionable, executable test items** (for example it only says `N/A`/`Not tested`, is empty, or lists no concrete checks), treat it as unusable and fall through to step 3 to derive a checklist from the actual change — do not get stuck with nothing to execute. Read the section text from `qaSectionContent` to make this judgment.
 
-This step runs **only** when `hasQaSection` is false:
+### 3. Only if the PR has no usable QA/testing section, inspect and derive a checklist
+
+This step runs when `hasQaSection` is false, **or** when the existing section is not usable for the current change (stale hand-written plan, or one with no actionable test items):
 
 - Read the PR title and body.
 - Inspect the full PR diff and changed files with repository/GitHub tools or `gh pr diff`. Do not base the QA plan only on the PR description.

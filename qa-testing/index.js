@@ -139,23 +139,71 @@ function escapeInline(text) {
   return String(text).replaceAll('\n', ' ').replaceAll('\r', ' ').replaceAll('`', "'").trim()
 }
 
-// Loose detection of a QA/testing section in a PR body. Matches any markdown
-// heading whose text indicates QA/testing intent, so both the plugin's own
-// machine-managed "## QA Testing" block and hand-written sections like
-// "QA section", "QA test", or "Test steps" satisfy the condition.
+// Loose detection of a QA/testing section in a PR body. Matches any real
+// markdown heading whose text indicates QA/testing intent, so both the
+// plugin's own machine-managed "## QA Testing" block and hand-written sections
+// like "QA section", "QA test", or "Test steps" satisfy the condition.
 const QA_HEADING_RE = /\b(qa|quality\s+assurance|test|testing|tests|test\s+plan|test\s+steps|verification|checklist)\b/i
+const MAX_QA_SECTION_CHARS = 4000
+
+function headingLevel(line) {
+  const match = line.match(/^[ \t]*#{1,6}[ \t]+/)
+  return match ? match[0].replace(/[ \t#]/g, '').length : Infinity
+}
 
 function qaSectionInfo(body) {
-  if (typeof body !== 'string') return { hasQaSection: false, heading: null }
-  const headings = body.match(/^[ \t]*#{1,6}[ \t]+[^\n]*$/gm)
-  if (!headings) return { hasQaSection: false, heading: null }
-  for (const line of headings) {
-    const heading = line.replace(/^[ \t]*#{1,6}[ \t]+/, '').trim()
-    if (QA_HEADING_RE.test(heading)) {
-      return { hasQaSection: true, heading }
+  if (typeof body !== 'string') return { hasQaSection: false, heading: null, content: '' }
+  const lines = body.split('\n')
+  let fence = null
+  let indented = false
+  let headingLine = -1
+  let heading = null
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i]
+    const trimmed = raw.trim()
+    const isBlank = trimmed === ''
+    // Skip fenced code blocks (``` or ~~~).
+    if (fence) {
+      if (trimmed.startsWith(fence)) fence = null
+      continue
+    }
+    if (/^(```|~~~)/.test(trimmed)) {
+      fence = trimmed.slice(0, 3)
+      continue
+    }
+    // Skip indented (4+ space / tab) code blocks and blank lines within them.
+    if (indented && (isBlank || /^(?: {4}|\t)/.test(raw))) continue
+    if (indented && !isBlank) indented = false
+    if (/^(?: {4}|\t)/.test(raw)) {
+      indented = true
+      continue
+    }
+    if (headingLevel(raw) !== Infinity) {
+      const text = raw.replace(/^[ \t]*#{1,6}[ \t]+/, '').trim()
+      if (QA_HEADING_RE.test(text)) {
+        heading = text
+        headingLine = i
+        break
+      }
     }
   }
-  return { hasQaSection: false, heading: null }
+
+  if (headingLine < 0) return { hasQaSection: false, heading: null, content: '' }
+
+  // Extract the section text: from the matched heading until the next heading
+  // of equal or lower rank (or the end of the body), bounded for the response.
+  const startLevel = headingLevel(lines[headingLine])
+  let end = lines.length
+  for (let j = headingLine + 1; j < lines.length; j++) {
+    if (lines[j].trim() === '') continue
+    if (headingLevel(lines[j]) !== Infinity && headingLevel(lines[j]) <= startLevel) {
+      end = j
+      break
+    }
+  }
+  const content = lines.slice(headingLine, end).join('\n').slice(0, MAX_QA_SECTION_CHARS)
+  return { hasQaSection: true, heading, content }
 }
 
 function statusLabel(status) {
@@ -213,7 +261,9 @@ async function writeState(pr, state, exec, expectedHeadSha) {
     input: nextBody,
     signal: exec.signal,
   })
-  return current
+  // Return the snapshot with the *written* body so downstream fields computed
+  // from pr.body (e.g. hasQaSection) reflect the mutation, not the pre-edit state.
+  return { ...current, body: nextBody }
 }
 
 function publicState(state) {
@@ -249,6 +299,7 @@ function qaOutput(operation, pr, state, body, maxPrBodyChars) {
     checks: publicState(state).checks,
     hasQaSection: qaSection.hasQaSection,
     qaSectionHeading: qaSection.heading,
+    qaSectionContent: qaSection.hasQaSection ? qaSection.content : null,
   }
   if (body !== undefined) {
     result.body = body.length <= maxPrBodyChars
@@ -275,6 +326,7 @@ const OUTPUT_SCHEMA = {
     body: { type: 'string' },
     hasQaSection: { type: 'boolean' },
     qaSectionHeading: { type: ['string', 'null'] },
+    qaSectionContent: { type: ['string', 'null'] },
     checks: {
       type: 'array',
       items: {
