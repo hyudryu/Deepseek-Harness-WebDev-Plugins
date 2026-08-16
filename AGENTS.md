@@ -1,4 +1,4 @@
-# AGENT.md — Contributor Guide for AI Agents
+# AGENTS.md — Contributor Guide for AI Agents
 
 This file gives autonomous coding agents (and human contributors) the context they need to work on this repository safely and consistently. Read it fully before making changes.
 
@@ -14,7 +14,7 @@ Every plugin here is entirely coded with **DeepSeek-V4-Flash**, served on **2× 
 
 ```
 DSH-Plugins/
-├── AGENT.md            ← this file
+├── AGENTS.md           ← this file
 ├── README.md           ← user-facing docs; MUST stay in sync with the plugins (see below)
 ├── .gitignore          ← node_modules/, .dsh/, OS/editor files
 ├── browser-control/    ← plugin 1: dsh-browser-control
@@ -97,7 +97,7 @@ The README also carries a disclaimer and attribution note at the top. Do not rem
 
 ## Pull requests (REQUIRED)
 
-Whenever you complete a non-trivial change (a change to an existing plugin, a new plugin, or doc/code updates such as `README.md`/`AGENT.md`), open a pull request to merge it into `main`:
+Whenever you complete a non-trivial change (a change to an existing plugin, a new plugin, or doc/code updates such as `README.md`/`AGENTS.md`), open a pull request to merge it into `main`:
 
 1. Create a dedicated branch from `main` with a descriptive name, e.g. `agent/<short-change-summary>`.
 2. Commit your changes on that branch with a clear message.
