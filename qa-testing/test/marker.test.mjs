@@ -20,3 +20,24 @@ test('machine state round trips through rendered block', () => {
   assert.equal(parsed.checks[0].id, 'QA-001')
   assert.equal(parsed.checks[0].status, 'PENDING')
 })
+
+test('qaSectionInfo loosely detects existing QA/testing sections', () => {
+  const cases = [
+    ['## Summary\nplain body', false],
+    ['## QA Testing', true],
+    ['## QA section', true],
+    ['## QA test', true],
+    ['## Test steps', true],
+    ['## Testing', true],
+    ['### Verification', true],
+    ['## Checklist', true],
+    ['## My PR title\nSome text', false],
+    ['## Notes\nno test here', false],
+  ]
+  for (const [body, expected] of cases) {
+    assert.equal(__test.qaSectionInfo(body).hasQaSection, expected, JSON.stringify(body))
+  }
+  // The plugin's own rendered block counts as an existing QA/testing section.
+  const state = __test.newState('abc123', [{ id: 'QA-001', text: 'x' }], 3)
+  assert.equal(__test.qaSectionInfo(__test.renderBlock(state)).hasQaSection, true)
+})

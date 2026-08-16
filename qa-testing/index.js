@@ -139,6 +139,25 @@ function escapeInline(text) {
   return String(text).replaceAll('\n', ' ').replaceAll('\r', ' ').replaceAll('`', "'").trim()
 }
 
+// Loose detection of a QA/testing section in a PR body. Matches any markdown
+// heading whose text indicates QA/testing intent, so both the plugin's own
+// machine-managed "## QA Testing" block and hand-written sections like
+// "QA section", "QA test", or "Test steps" satisfy the condition.
+const QA_HEADING_RE = /\b(qa|quality\s+assurance|test|testing|tests|test\s+plan|test\s+steps|verification|checklist)\b/i
+
+function qaSectionInfo(body) {
+  if (typeof body !== 'string') return { hasQaSection: false, heading: null }
+  const headings = body.match(/^[ \t]*#{1,6}[ \t]+[^\n]*$/gm)
+  if (!headings) return { hasQaSection: false, heading: null }
+  for (const line of headings) {
+    const heading = line.replace(/^[ \t]*#{1,6}[ \t]+/, '').trim()
+    if (QA_HEADING_RE.test(heading)) {
+      return { hasQaSection: true, heading }
+    }
+  }
+  return { hasQaSection: false, heading: null }
+}
+
 function statusLabel(status) {
   if (status === 'PASS') return '✅ PASS'
   if (status === 'FAIL') return '❌ FAIL'
@@ -216,6 +235,7 @@ function publicState(state) {
 }
 
 function qaOutput(operation, pr, state, body, maxPrBodyChars) {
+  const qaSection = qaSectionInfo(pr.body ?? '')
   const result = {
     ok: true,
     operation,
@@ -227,6 +247,8 @@ function qaOutput(operation, pr, state, body, maxPrBodyChars) {
     baseRefName: pr.baseRefName,
     overall: state?.overall ?? 'NOT_STARTED',
     checks: publicState(state).checks,
+    hasQaSection: qaSection.hasQaSection,
+    qaSectionHeading: qaSection.heading,
   }
   if (body !== undefined) {
     result.body = body.length <= maxPrBodyChars
@@ -251,6 +273,8 @@ const OUTPUT_SCHEMA = {
     baseRefName: { type: 'string' },
     overall: { type: 'string' },
     body: { type: 'string' },
+    hasQaSection: { type: 'boolean' },
+    qaSectionHeading: { type: ['string', 'null'] },
     checks: {
       type: 'array',
       items: {
@@ -274,7 +298,7 @@ export function apply(ctx, rawConfig = {}) {
 
   ctx.effect(() => ctx.tools.register({
     name: 'qa_pr',
-    description: 'Own the machine-managed QA checklist block at the bottom of the current GitHub PR body. Inspect PR state, create/reset checklist items, update one item status with audit history, or set overall QA status. Refetches the PR before every mutation and preserves all non-QA PR body content.',
+    description: 'Own the machine-managed QA checklist block at the bottom of the current GitHub PR body. Inspect PR state (reporting whether the PR body already contains a QA/testing section via hasQaSection), create/reset checklist items, update one item status with audit history, or set overall QA status. Refetches the PR before every mutation and preserves all non-QA PR body content.',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -382,4 +406,4 @@ export function apply(ctx, rawConfig = {}) {
   }))
 }
 
-export const __test = { parseState, renderBlock, upsertBlock, newState }
+export const __test = { parseState, renderBlock, upsertBlock, newState, qaSectionInfo }

@@ -35,9 +35,9 @@ A PR-aware QA orchestration plugin. It exposes `qa_pr` plus a progressively load
 
 The QA skill instructs DeepSeek to:
 
-1. inspect the actual PR body, diff, changed files, and adjacent code;
-2. derive a concrete QA checklist;
-3. append a machine-managed `## QA Testing` block at the bottom of the PR body if it does not exist;
+1. inspect the PR to see whether it already has a QA/testing section (loose match: `## QA Testing`, `QA section`, `QA test`, `Test steps`, `Testing`, etc. all count);
+2. only if the PR has no such section, inspect the PR body, diff, changed files, and adjacent code, then derive a concrete QA checklist;
+3. if the PR already has a QA/testing section, reuse/translate it into the machine-managed `## QA Testing` block instead of re-deriving from scratch;
 4. update each item live as PENDING/RUNNING/PASS/FAIL/BLOCKED;
 5. on FAIL, call a foreground `subagent_fork` coding agent with the exact failure evidence;
 6. retest the failed item after the coding agent fixes it;
