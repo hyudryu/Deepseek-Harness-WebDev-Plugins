@@ -1,0 +1,9 @@
+- insert:
+    - id: vision-router
+      name: dsh-vision-router
+      config:
+        enabled: true
+        visionProvider: ''
+        visionModel: ''
+        textProvider: ''
+        textModel: ''
