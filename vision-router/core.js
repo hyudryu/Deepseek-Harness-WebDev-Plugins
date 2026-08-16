@@ -131,15 +131,26 @@ function cap(text, max) {
   return `${text.slice(0, max)}\n…[analysis truncated]`
 }
 
-// Recursively remove every image block from one content array.
+// Marker kept in place of a tool-result that contained nothing but images, so
+// the text stage still sees a non-empty result tied to its tool call rather
+// than a dangling empty array.
+export const TOOL_RESULT_IMAGE_NOTE =
+  '[image(s) in this tool result were analyzed by the vision stage; see the Vision analysis in the user message above]'
+
+// Recursively remove every image block from one content array. When a
+// tool-result's content would be emptied by that removal it keeps a short note
+// instead, so the association between the tool call and its visual output
+// survives without passing the raw image through.
 function stripImagesInContent(content) {
   if (!Array.isArray(content)) return content
   let changed = false
+  let hadImage = false
   const next = []
   for (const block of content) {
     if (block == null) continue
     if (block.type === 'image') {
       changed = true
+      hadImage = true
       continue
     }
     if (block.type === 'tool-result' && Array.isArray(block.content)) {
@@ -154,7 +165,9 @@ function stripImagesInContent(content) {
     }
     next.push(block)
   }
-  return changed ? next : content
+  if (!changed) return content
+  if (hadImage && next.length === 0) next.push({ type: 'text', text: TOOL_RESULT_IMAGE_NOTE })
+  return next
 }
 
 // Rewrite the request so the text stage never sees a raw image: every image
@@ -197,6 +210,9 @@ export async function assembleVisionText(chunks) {
       }
       if (chunk.reason.kind === 'aborted') throw new Error('vision-router: vision model call was aborted')
     }
+  }
+  if (text.trim() === '') {
+    throw new Error('vision-router: vision model returned no analysis text (an empty result is treated as a vision-stage failure)')
   }
   return text
 }

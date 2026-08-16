@@ -11,6 +11,9 @@
     "skills/vision-router.md"
   ],
   "license": "MIT",
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.1"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"

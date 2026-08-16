@@ -7,3 +7,5 @@
         visionModel: ''
         textProvider: ''
         textModel: ''
+        # visionPrompt: ''        # empty = built-in default (see skills/vision-router.md)
+        maxAnalysisChars: 20000

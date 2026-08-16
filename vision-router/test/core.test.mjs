@@ -200,3 +200,33 @@ test('routeRequest propagates a vision failure loudly', async () => {
     /vision boom/,
   )
 })
+
+test('assembleVisionText rejects an empty/whitespace analysis', async () => {
+  const empty = (async function* () {
+    yield { type: 'finish', reason: { kind: 'success' } }
+  })()
+  await assert.rejects(() => assembleVisionText(empty), /no analysis text/)
+
+  const whitespace = (async function* () {
+    yield { type: 'text-delta', text: '   \n  ' }
+    yield { type: 'finish', reason: { kind: 'success' } }
+  })()
+  await assert.rejects(() => assembleVisionText(whitespace), /no analysis text/)
+})
+
+test('withVisionAnalysis keeps a note instead of an empty tool result', () => {
+  const messages = [
+    { role: 'user', content: [{ type: 'text', text: 'q' }] },
+    { role: 'tool', content: [{ type: 'tool-result', toolCallId: 't1', content: [{ type: 'image' }] }] },
+  ]
+  const out = withVisionAnalysis(messages, 'the screenshot shows X', 1000)
+  const json = JSON.stringify(out)
+  assert.equal(json.includes('"type":"image"'), false)
+  // The image-bearing tool-result keeps a non-empty marker tied to its tool call.
+  const toolResult = out.find((m) => m.role === 'tool')
+  assert.ok(toolResult)
+  assert.equal(toolResult.content[0].type, 'tool-result')
+  assert.equal(toolResult.content[0].toolCallId, 't1')
+  assert.equal(toolResult.content[0].content.length, 1)
+  assert.match(toolResult.content[0].content[0].text, /analyzed by the vision stage/)
+})

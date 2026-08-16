@@ -16,6 +16,7 @@ const SETTINGS_NS = 'vision-router'
 // of them.
 let settingsReady = false
 let currentSettings = null
+let warnedOff = false
 
 // A permissive schema: the router enforces "vision target required" itself at
 // request time (normalizeConfig), so an unconfigured namespace stays valid and
@@ -35,11 +36,11 @@ function installSettings(ctx, rawConfig) {
     // Already registered by an earlier agent mount; nothing more to do.
     return
   }
-  settingsReady = true
   const settings = ctx.get('settings') ?? ctx.settings
   if (settings == null) {
     // No settings service mounted in this composition: fall back to the
-    // composition config alone (cordis.patch.yml) and still route.
+    // composition config alone (cordis.patch.yml).
+    settingsReady = true
     currentSettings = rawConfig
     return
   }
@@ -52,21 +53,36 @@ function installSettings(ctx, rawConfig) {
     update()
     if (typeof scope.watch === 'function') scope.watch(() => update())
     if (typeof scope.subscribe === 'function') scope.subscribe(() => update())
+    // Mark ready only after registration and watchers are live, so a failed
+    // registration (e.g. the settings document transiently invalid) lets a
+    // later agent mount retry and restore hot-reloaded config without a restart.
+    settingsReady = true
   } catch (error) {
-    // Duplicate registration or a validation edge: degrade to composition-only
-    // routing rather than taking the process down.
+    // Do NOT mark ready: route on composition config for now and let a later
+    // mount re-attempt the namespace once settings.yaml is corrected.
     currentSettings = rawConfig
-    ctx.logger?.warn?.(`vision-router: settings namespace unavailable (${error?.message ?? error}); using composition config only`)
+    ctx.logger?.warn?.(`vision-router: settings registration failed (${error?.message ?? error}); using composition config only until settings.yaml is valid`)
   }
 }
 
-function currentConfig() {
-  try {
-    return normalizeConfig(currentSettings ?? {})
-  } catch {
-    // The owner has not yet configured a vision target; pass requests through.
-    return null
-  }
+// Read the effective router state: `off` (no vision target configured -> the
+// router deliberately passes every request through), `ok` (validated config),
+// or an actionable throw for genuinely invalid settings (a bad field must not
+// silently disable routing).
+function readConfig() {
+  const raw = currentSettings ?? {}
+  const visionProvider = typeof raw.visionProvider === 'string' ? raw.visionProvider.trim() : ''
+  const visionModel = typeof raw.visionModel === 'string' ? raw.visionModel.trim() : ''
+  if (visionProvider === '' || visionModel === '') return { status: 'off' }
+  return { status: 'ok', config: normalizeConfig(raw) }
+}
+
+function warnOff(ctx) {
+  if (warnedOff) return
+  warnedOff = true
+  ctx.logger?.warn?.(
+    'vision-router: no vision target configured; requests pass through unchanged. Set visionProvider/visionModel in settings.yaml (or cordis.patch.yml) to activate routing.',
+  )
 }
 
 async function generate(ctx, options) {
@@ -80,9 +96,12 @@ export function apply(ctx, rawConfig = {}) {
   ctx.effect(() => {
     const dispose = ctx.on('agent/request', async (_payload, next) => {
       const resolved = await next()
-      const config = currentConfig()
-      if (config == null) return resolved
-      return routeRequest(resolved, config, (options) => generate(ctx, options))
+      const read = readConfig()
+      if (read.status === 'off') {
+        warnOff(ctx)
+        return resolved
+      }
+      return routeRequest(resolved, read.config, (options) => generate(ctx, options))
     })
     return dispose
   })

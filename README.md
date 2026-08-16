@@ -69,10 +69,20 @@ vision-router:
   visionModel: pi-vision-2       # vision-capable model id
   textProvider: deepseek         # optional; unset inherits the session model
   textModel: deepseek-v4-flash   # optional; unset inherits the session model
+  visionPrompt: ''               # optional; empty = built-in default (the instruction to the vision model)
   maxAnalysisChars: 20000        # cap on the vision analysis injected as text
 ```
 
-The same fields can be set in `cordis.patch.yml` as composition defaults. Routing only activates once a vision provider/model is configured; until then every request passes through unchanged. If a request contains an image and the vision stage is not configured, the request fails loudly rather than silently degrading.
+The same fields can be set in `cordis.patch.yml` as composition defaults. Routing activates once a `visionProvider`/`visionModel` is configured; until then the router is off and every request passes through unchanged. Invalid router settings (for example a bad `maxAnalysisChars`) fail any request with an actionable error rather than silently disabling routing, and a configured image request whose vision stage fails is reported loudly instead of degrading.
+
+To set a custom `visionPrompt`, provide the instruction the vision model receives when it analyzes images, for example:
+
+```yaml
+vision-router:
+  visionProvider: pi-ai
+  visionModel: pi-vision-2
+  visionPrompt: Describe the image in detail, including any text, UI elements, and layout.
+```
 
 This is a router, not a tool — there is no `vision_router` tool to call. A `vision-router` skill keeps the agent aware that images are analyzed by a separate model and delivered as text.
 
