@@ -1,8 +1,15 @@
 # DeepSeek Harness Browser + QA Plugins
 
+> **⚠️ Disclaimer:** These are **not** official DeepSeek plugins. They are my own personal collection of plugins that I use myself for development. Use them at your own discretion.
+
+> **🤖 Also note:** All of these tools were coded with **DeepSeek-V4-Flash**, served on **2× DGX Sparks** using **DeepSeek Harness**.
+
 Two installable DeepSeek Harness bundles designed for coding-agent QA workflows.
 
 ## 1. `dsh-browser-control`
+
+<details>
+<summary><b>Compact Playwright browser-control plugin</b> — click to expand</summary>
 
 A compact native Playwright browser-control plugin. It intentionally exposes one `browser` tool rather than a large MCP tool catalog, plus a progressively loaded `browser-control` skill containing interaction policy.
 
@@ -17,7 +24,12 @@ Capabilities include:
 - screenshots and responsive viewport changes;
 - popup/tab listing and switching.
 
+</details>
+
 ## 2. `dsh-qa-testing`
+
+<details>
+<summary><b>PR-aware QA orchestration plugin</b> — click to expand</summary>
 
 A PR-aware QA orchestration plugin. It exposes `qa_pr` plus a progressively loaded `qa-testing` skill.
 
@@ -34,6 +46,8 @@ The QA skill instructs DeepSeek to:
 9. only mark overall PASS when every item passes in one uninterrupted final sweep.
 
 The PR body block stores hidden JSON state between markers so updates are deterministic and preserve the rest of the PR body. Failure/pass attempt history remains visible to reviewers.
+
+</details>
 
 ## Installation
 
