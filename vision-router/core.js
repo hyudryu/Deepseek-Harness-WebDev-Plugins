@@ -131,66 +131,60 @@ function cap(text, max) {
   return `${text.slice(0, max)}\n…[analysis truncated]`
 }
 
-// Marker kept in place of a tool-result that contained nothing but images, so
-// the text stage still sees a non-empty result tied to its tool call rather
-// than a dangling empty array.
-export const TOOL_RESULT_IMAGE_NOTE =
-  '[image(s) in this tool result were analyzed by the vision stage; see the Vision analysis in the user message above]'
-
-// Recursively remove every image block from one content array. When a
-// tool-result's content would be emptied by that removal it keeps a short note
-// instead, so the association between the tool call and its visual output
-// survives without passing the raw image through.
-function stripImagesInContent(content) {
+// Replace every image block in one content array with a text block carrying
+// the vision analysis, recursing into nested tool-result content. Each
+// tool-result therefore keeps the vision description tied to its own content
+// instead of being emptied, preserving the association between a tool call and
+// its visual output.
+function replaceImagesWithAnalysis(content, analysisText) {
   if (!Array.isArray(content)) return content
   let changed = false
-  let hadImage = false
-  const next = []
+  const out = []
   for (const block of content) {
     if (block == null) continue
     if (block.type === 'image') {
       changed = true
-      hadImage = true
+      if (analysisText !== '') out.push({ type: 'text', text: analysisText })
       continue
     }
     if (block.type === 'tool-result' && Array.isArray(block.content)) {
-      const inner = stripImagesInContent(block.content)
+      const inner = replaceImagesWithAnalysis(block.content, analysisText)
       if (inner !== block.content) {
         changed = true
-        next.push({ ...block, content: inner })
+        out.push({ ...block, content: inner })
       } else {
-        next.push(block)
+        out.push(block)
       }
       continue
     }
-    next.push(block)
+    out.push(block)
   }
-  if (!changed) return content
-  if (hadImage && next.length === 0) next.push({ type: 'text', text: TOOL_RESULT_IMAGE_NOTE })
-  return next
+  return changed ? out : content
 }
 
 // Rewrite the request so the text stage never sees a raw image: every image
-// block is stripped (including inside tool results) and the vision analysis,
-// as a single text block, is prepended to the newest user message.
+// block is replaced in place by the vision analysis (inside tool results this
+// keeps each analysis associated with its own tool call rather than emptying
+// the result), and the same analysis is reflected at the newest user message
+// for overall context.
 export function withVisionAnalysis(messages, analysis, maxAnalysisChars) {
   const analysisText = `[Vision analysis]\n${cap(String(analysis ?? ''), maxAnalysisChars)}`
-  const stripped = (messages || []).map((message) => {
+  const transformed = (messages || []).map((message) => {
     if (message == null || !Array.isArray(message.content)) return message
-    const content = stripImagesInContent(message.content)
+    const content = replaceImagesWithAnalysis(message.content, analysisText)
     return content === message.content ? message : { ...message, content }
   })
-  for (let i = stripped.length - 1; i >= 0; i -= 1) {
-    const message = stripped[i]
+  for (let i = transformed.length - 1; i >= 0; i -= 1) {
+    const message = transformed[i]
     if (message == null || message.role !== 'user' || !Array.isArray(message.content)) continue
-    stripped[i] = {
+    transformed[i] = {
       ...message,
-      content: [{ type: 'text', text: analysisText }, ...stripImagesInContent(message.content)],
+      content: [{ type: 'text', text: analysisText }, ...message.content],
     }
-    return stripped
+    return transformed
   }
-  stripped.push({ role: 'user', content: [{ type: 'text', text: analysisText }] })
-  return stripped
+  transformed.push({ role: 'user', content: [{ type: 'text', text: analysisText }] })
+  return transformed
 }
 
 // Assemble the vision model's output text from an async chunk stream. Chunks

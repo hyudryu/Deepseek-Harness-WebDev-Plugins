@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import z from '@deepseek-ai/schemastery'
-import { DEFAULTS, normalizeConfig, routeRequest, assembleVisionText } from './core.js'
+import { DEFAULTS, normalizeConfig, routeRequest, assembleVisionText, messagesHaveImage } from './core.js'
 
 export const name = 'vision-router'
 export const inject = ['llm', 'settings', 'skills']
@@ -98,6 +98,15 @@ export function apply(ctx, rawConfig = {}) {
       const resolved = await next()
       const read = readConfig()
       if (read.status === 'off') {
+        // With no vision target the router is intentionally a pass-through for
+        // text, but it must NOT silently forward raw image content to the text
+        // model. Fail image requests loudly with an actionable error; invalid
+        // settings never reach here because readConfig/normalizeConfig throw.
+        if (messagesHaveImage(resolved && resolved.messages)) {
+          throw new Error(
+            'vision-router: request contains an image but no vision target is configured. Set visionProvider/visionModel in settings.yaml (or cordis.patch.yml) so the vision stage can analyze it.',
+          )
+        }
         warnOff(ctx)
         return resolved
       }

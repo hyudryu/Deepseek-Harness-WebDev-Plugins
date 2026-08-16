@@ -214,19 +214,27 @@ test('assembleVisionText rejects an empty/whitespace analysis', async () => {
   await assert.rejects(() => assembleVisionText(whitespace), /no analysis text/)
 })
 
-test('withVisionAnalysis keeps a note instead of an empty tool result', () => {
+test('withVisionAnalysis embeds the analysis inside image tool results', () => {
   const messages = [
     { role: 'user', content: [{ type: 'text', text: 'q' }] },
     { role: 'tool', content: [{ type: 'tool-result', toolCallId: 't1', content: [{ type: 'image' }] }] },
+    { role: 'tool', content: [{ type: 'tool-result', toolCallId: 't2', content: [{ type: 'text', text: 'keep' }, { type: 'image' }] }] },
   ]
   const out = withVisionAnalysis(messages, 'the screenshot shows X', 1000)
   const json = JSON.stringify(out)
   assert.equal(json.includes('"type":"image"'), false)
-  // The image-bearing tool-result keeps a non-empty marker tied to its tool call.
-  const toolResult = out.find((m) => m.role === 'tool')
-  assert.ok(toolResult)
-  assert.equal(toolResult.content[0].type, 'tool-result')
-  assert.equal(toolResult.content[0].toolCallId, 't1')
-  assert.equal(toolResult.content[0].content.length, 1)
-  assert.match(toolResult.content[0].content[0].text, /analyzed by the vision stage/)
+  const tools = out.filter((m) => m.role === 'tool')
+  // t1 kept its tool-call identity and its emptied content was replaced in place
+  // by the analysis itself, not a generic note.
+  const t1 = tools[0].content[0]
+  assert.equal(t1.type, 'tool-result')
+  assert.equal(t1.toolCallId, 't1')
+  assert.equal(t1.content.length, 1)
+  assert.match(t1.content[0].text, /\[Vision analysis\]/)
+  assert.match(t1.content[0].text, /the screenshot shows X/)
+  // t2 preserved its sibling text and had the analysis inserted for the image.
+  const t2 = tools[1].content[0]
+  assert.equal(t2.toolCallId, 't2')
+  assert.equal(t2.content[0].text, 'keep')
+  assert.match(t2.content[1].text, /\[Vision analysis\]/)
 })

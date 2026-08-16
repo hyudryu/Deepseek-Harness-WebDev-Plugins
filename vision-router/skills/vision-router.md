@@ -18,4 +18,4 @@ The vision-router is a transparent two-stage model router, not a tool you call d
 
 ## When the router is not active
 
-If no vision target is configured, the router is off and passes every request through unchanged — the agent acts as if the router is absent. Invalid router settings fail requests with an actionable error rather than silently disabling routing; a configured image request whose vision stage fails also errors loudly rather than degrading.
+If no vision target is configured, the router is off: it passes every text request through unchanged, but a request that contains an image **fails loudly with an actionable error** — the router cannot analyze it without a configured vision target, so it refuses to send raw image content to a model that may not support vision. Invalid router settings also fail requests with an actionable error rather than silently disabling routing, and a configured image request whose vision stage fails errors loudly rather than degrading.

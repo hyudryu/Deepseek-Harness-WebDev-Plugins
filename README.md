@@ -73,7 +73,7 @@ vision-router:
   maxAnalysisChars: 20000        # cap on the vision analysis injected as text
 ```
 
-The same fields can be set in `cordis.patch.yml` as composition defaults. Routing activates once a `visionProvider`/`visionModel` is configured; until then the router is off and every request passes through unchanged. Invalid router settings (for example a bad `maxAnalysisChars`) fail any request with an actionable error rather than silently disabling routing, and a configured image request whose vision stage fails is reported loudly instead of degrading.
+The same fields can be set in `cordis.patch.yml` as composition defaults. Routing activates once a `visionProvider`/`visionModel` is configured; until then the router is off — text requests pass through unchanged, but a request that contains an image **fails loudly** because the router cannot analyze it without a configured vision target. Invalid router settings (for example a bad `maxAnalysisChars`) fail any request with an actionable error rather than silently disabling routing, and a configured image request whose vision stage fails is reported loudly instead of degrading. The vision analysis is delivered both at the user message and inside each image-bearing tool result, preserving the link between a tool call and its visual output.
 
 To set a custom `visionPrompt`, provide the instruction the vision model receives when it analyzes images, for example:
 
