@@ -1,0 +1,27 @@
+- insert:
+    - id: personal-assistant
+      name: dsh-personal-assistant
+      config:
+        enabled: true
+        strands:
+          modelProvider: openai-compatible
+          model: deepseek-v4-flash
+          baseUrl: http://localhost:8000/v1
+          apiKeyEnv: ASSISTANT_API_KEY
+          maxTurnsPerInvocation: 8
+        personality:
+          preset: friendly
+        notifications:
+          completed: true
+          inputRequired: true
+          failed: true
+          blocked: true
+          reviewReceived: true
+          ciFailed: true
+          ciPassed: false
+        github:
+          codexActorLogins:
+            - codex
+          defaultWatchIntervalSeconds: 300
+        permissions:
+          autonomyLevel: 2
