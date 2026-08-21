@@ -78,16 +78,20 @@ function runGh(args, { signal, maxBytes = 2_000_000, spawnImpl = spawn } = {}) {
   })
 }
 
-export function createGithubClient({ spawnImpl } = {}) {
+export function createGithubClient({ spawnImpl, pollTimeoutMs = 30_000 } = {}) {
+  if (!Number.isFinite(pollTimeoutMs) || pollTimeoutMs <= 0) throw new Error('pollTimeoutMs must be a positive number')
+
   async function getPrReviewTimeline({ repo, prNumber, signal } = {}) {
     const [owner, name] = repo.split('/')
+    const timeoutSignal = AbortSignal.timeout(pollTimeoutMs)
+    const commandSignal = signal === undefined ? timeoutSignal : AbortSignal.any([signal, timeoutSignal])
     const stdout = await runGh([
       'api', 'graphql',
       '-F', `owner=${owner}`,
       '-F', `name=${name}`,
       '-F', `number=${prNumber}`,
       '-f', `query=${PR_REVIEW_TIMELINE_QUERY}`,
-    ], { signal, spawnImpl })
+    ], { signal: commandSignal, spawnImpl })
     let parsed
     try {
       parsed = JSON.parse(stdout)

@@ -14,7 +14,7 @@ function reviewStateResult(overrides = {}) {
   }
 }
 
-function setup(state = reviewStateResult()) {
+function setup(state = reviewStateResult(), notifications) {
   const store = createMemoryStore()
   const events = []
   const deletions = []
@@ -24,6 +24,7 @@ function setup(state = reviewStateResult()) {
     reviewState: async () => current,
     emitEvent: event => events.push(event),
     deleteSchedule: async args => deletions.push(args),
+    notifications,
   })
   return {
     store,
@@ -102,6 +103,53 @@ test('merged PR terminates a codex_thumbs_up watch; manual watch keeps polling',
   const { watch: manualWatch } = manual.manager.createWatch({ ...WATCH, prNumber: 7, exitCondition: 'manual' })
   assert.equal((await manual.manager.handleTick(manualWatch.watchId)).acted, false)
   assert.equal(manual.events.length, 0)
+})
+
+test('manual watches keep polling after a Codex thumbs-up', async () => {
+  const { manager, events, store } = setup(reviewStateResult({
+    codexThumbsUpOnMainPost: true,
+    reviewComplete: true,
+    fingerprint: 'thumbsup:RE1',
+  }))
+  const { watch } = manager.createWatch({ ...WATCH, exitCondition: 'manual' })
+  assert.equal((await manager.handleTick(watch.watchId)).acted, false)
+  assert.equal(events.length, 0)
+  assert.equal(store.state.watches[0].status, 'active')
+})
+
+test('reviewReceived=false records the fingerprint without emitting', async () => {
+  const state = reviewStateResult({
+    latestActivity: { kind: 'codex_comment', actor: 'codex', text: 'Finding' },
+    fingerprint: 'codex-comment:C1',
+  })
+  const { manager, events, store } = setup(state, { reviewReceived: false })
+  const { watch } = manager.createWatch(WATCH)
+  assert.equal((await manager.handleTick(watch.watchId)).acted, false)
+  assert.equal(events.length, 0)
+  assert.equal(store.state.watches[0].lastFingerprint, 'codex-comment:C1')
+})
+
+test('concurrent ticks for one watch share one in-flight poll', async () => {
+  const store = createMemoryStore()
+  let release
+  let calls = 0
+  const manager = createWatchManager({
+    store,
+    reviewState: async () => {
+      calls += 1
+      await new Promise(resolve => { release = resolve })
+      return reviewStateResult()
+    },
+    emitEvent: () => {},
+    deleteSchedule: async () => {},
+  })
+  const { watch } = manager.createWatch(WATCH)
+  const first = manager.handleTick(watch.watchId)
+  const second = manager.handleTick(watch.watchId)
+  await Promise.resolve()
+  assert.equal(calls, 1)
+  release()
+  assert.deepEqual(await Promise.all([first, second]), [{ acted: false }, { acted: false }])
 })
 
 test('other-actor comment stays silent', async () => {

@@ -57,7 +57,20 @@ function enumValue(value, fallback, allowed, name) {
   return value
 }
 
-function normalizeStrands(input = {}) {
+function objectValue(value, name) {
+  if (value === undefined) return {}
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${name} must be an object`)
+  return value
+}
+
+function rejectUnknownKeys(input, allowed, name) {
+  const unknown = Object.keys(input).filter(key => !allowed.includes(key))
+  if (unknown.length > 0) throw new Error(`${name} contains unknown field${unknown.length === 1 ? '' : 's'}: ${unknown.join(', ')}`)
+}
+
+function normalizeStrands(value) {
+  const input = objectValue(value, 'strands')
+  rejectUnknownKeys(input, Object.keys(DEFAULTS.strands), 'strands')
   return {
     modelProvider: enumValue(input.modelProvider, DEFAULTS.strands.modelProvider, MODEL_PROVIDERS, 'strands.modelProvider'),
     model: nonEmptyString(input.model, DEFAULTS.strands.model, 'strands.model'),
@@ -69,7 +82,9 @@ function normalizeStrands(input = {}) {
   }
 }
 
-function normalizePersonality(input = {}) {
+function normalizePersonality(value) {
+  const input = objectValue(value, 'personality')
+  rejectUnknownKeys(input, Object.keys(DEFAULTS.personality), 'personality')
   const preset = enumValue(input.preset, DEFAULTS.personality.preset, PERSONALITY_PRESETS, 'personality.preset')
   if (input.customPrompt !== undefined && (typeof input.customPrompt !== 'string' || input.customPrompt.trim() === '')) {
     throw new Error('personality.customPrompt must be a non-empty string')
@@ -80,7 +95,9 @@ function normalizePersonality(input = {}) {
   return { preset, customPrompt: input.customPrompt }
 }
 
-function normalizeNotifications(input = {}) {
+function normalizeNotifications(value) {
+  const input = objectValue(value, 'notifications')
+  rejectUnknownKeys(input, Object.keys(DEFAULTS.notifications), 'notifications')
   const result = {}
   for (const key of Object.keys(DEFAULTS.notifications)) {
     result[key] = booleanValue(input[key], DEFAULTS.notifications[key], `notifications.${key}`)
@@ -88,7 +105,9 @@ function normalizeNotifications(input = {}) {
   return result
 }
 
-function normalizeGithub(input = {}) {
+function normalizeGithub(value) {
+  const input = objectValue(value, 'github')
+  rejectUnknownKeys(input, Object.keys(DEFAULTS.github), 'github')
   let logins = DEFAULTS.github.codexActorLogins
   if (input.codexActorLogins !== undefined) {
     if (!Array.isArray(input.codexActorLogins) || input.codexActorLogins.some(login => typeof login !== 'string' || login.trim() === '')) {
@@ -103,13 +122,17 @@ function normalizeGithub(input = {}) {
   return { codexActorLogins: logins, defaultWatchIntervalSeconds: interval }
 }
 
-function normalizePermissions(input = {}) {
+function normalizePermissions(value) {
+  const input = objectValue(value, 'permissions')
+  rejectUnknownKeys(input, Object.keys(DEFAULTS.permissions), 'permissions')
   const level = input.autonomyLevel === undefined ? DEFAULTS.permissions.autonomyLevel : input.autonomyLevel
-  if (!Number.isInteger(level) || level < 1 || level > 3) throw new Error('permissions.autonomyLevel must be an integer between 1 and 3')
+  if (level !== 2) throw new Error('permissions.autonomyLevel currently supports only Level 2')
   return { autonomyLevel: level }
 }
 
-export function normalizeConfig(input = {}) {
+export function normalizeConfig(value) {
+  const input = objectValue(value, 'config')
+  rejectUnknownKeys(input, Object.keys(DEFAULTS), 'config')
   return {
     enabled: booleanValue(input.enabled, DEFAULTS.enabled, 'enabled'),
     strands: normalizeStrands(input.strands),

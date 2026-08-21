@@ -55,17 +55,27 @@ test('tui_select happy path: keys sent in order, evidence returned', async () =>
   const result = await byName.tui_select.callback({ session_id: 'session-a', option_index: 2 })
   assert.equal(result.ok, true)
   assert.deepEqual(result.moved, ['DOWN'])
-  assert.deepEqual(bridge.sent, [{ keys: ['DOWN'], submit: true }])
+  assert.deepEqual(bridge.sent, [{ keys: ['DOWN'], submit: false }])
   assert.equal(result.selected, 'Create new API')
   assert.ok(result.after.includes('> Create new API'))
 })
 
-test('tui_select on the current option sends no movement keys but still submits', async () => {
+test('tui_select on the current option sends no movement keys and does not submit', async () => {
   const { byName, bridge } = setup()
   const result = await byName.tui_select.callback({ session_id: 'session-a', option_index: 1 })
   assert.equal(result.ok, true)
   assert.deepEqual(result.moved, [])
-  assert.deepEqual(bridge.sent, [{ keys: [], submit: true }])
+  assert.deepEqual(bridge.sent, [{ keys: [], submit: false }])
+})
+
+test('long inverse-video snapshots keep raw and clean menu lines aligned', async () => {
+  const text = `${'x'.repeat(4500)}\nPick one:\n\x1b[7m  Existing API\x1b[0m\n  New API`
+  const { byName } = setup(text)
+  const result = await byName.tui_snapshot.callback({ session_id: 'session-a' })
+  assert.ok(result.clean_text.length <= 4000)
+  assert.equal(result.menu.confidence, 'high')
+  assert.equal(result.menu.selectedIndex, 0)
+  assert.equal(result.menu.options[0].label, 'Existing API')
 })
 
 test('tui_select refuses ambiguous menus and never sends keys', async () => {

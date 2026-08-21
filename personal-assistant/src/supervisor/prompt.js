@@ -42,12 +42,20 @@ export function buildEventPrompt(event) {
   return lines.join('\n')
 }
 
-export function buildAnswerPrompt(text, question) {
+export function buildAnswerPrompt(text, question, ambiguousQuestions) {
   const lines = ['The user replied to you.']
   if (question) {
     lines.push(`This answers your pending question about event ${question.eventId} (kind: ${question.kind}).`)
+  } else if (ambiguousQuestions?.length > 1) {
+    lines.push('Multiple session questions are unresolved, and this reply did not identify exactly one by event id or session id.')
+    lines.push(`Pending questions: ${JSON.stringify(ambiguousQuestions)}`)
+    lines.push('Do not route or act on the reply yet. Ask the user to identify the intended event id or session id.')
   }
   lines.push(`User said: ${text}`)
-  lines.push('Act on the reply, then reply with one status sentence plus one next action.')
+  if (ambiguousQuestions?.length > 1 && !question) {
+    lines.push('Reply only with a concise request for the intended event id or session id.')
+  } else {
+    lines.push('Act on the reply, then reply with one status sentence plus one next action.')
+  }
   return lines.join('\n')
 }

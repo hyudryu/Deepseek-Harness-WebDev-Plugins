@@ -51,6 +51,9 @@ test('spec shape and extra callback arguments pass through untouched', async () 
 
 test('checkToolCall verdicts', () => {
   assert.deepEqual(checkToolCall('tui_select', {}), { allowed: true })
+  assert.equal(checkToolCall('tui_select', { submit: false }).allowed, true)
+  assert.equal(checkToolCall('tui_select', { submit: true }).allowed, false)
+  assert.equal(checkToolCall('tui_keypress', { submit: true }).allowed, false)
   assert.equal(checkToolCall('watch_delete_all').allowed, false)
   assert.ok(checkToolCall('unknown').reason.length > 0)
 })

@@ -50,7 +50,7 @@ test('sessions_list filters by status', async () => {
   const runningOnly = await byName.sessions_list.callback({ status: 'running' })
   assert.deepEqual(runningOnly.sessions.map(s => s.sessionId), ['session-running-0001'])
   // normalized metadata only
-  assert.deepEqual(Object.keys(idleOnly.sessions[0]).sort(), ['currentTask', 'cwd', 'friendlyName', 'lastActivityAt', 'sessionId', 'status'])
+  assert.deepEqual(Object.keys(idleOnly.sessions[0]).sort(), ['branch', 'currentTask', 'cwd', 'friendlyName', 'lastActivityAt', 'prNumber', 'repo', 'sessionId', 'status'])
 })
 
 test('sessions_list filters by recent_seconds', async () => {
@@ -96,4 +96,16 @@ test('session_get returns one record or an actionable error', async () => {
   assert.equal(result.session.sessionId, 'session-running-0001')
   assert.equal(result.session.friendlyName, 'Repo') // derived from cwd basename until a task arrives
   await assert.rejects(() => byName.session_get.callback({ session_id: 'gone' }), /not a known active session/)
+})
+
+test('session tools expose persisted PR associations', async () => {
+  const { index, byName } = setup()
+  index.noteSessionEvent({ id: 'session-running-0001' }, {
+    type: 'assistant/message',
+    seq: 9,
+    data: { message: { content: [{ type: 'text', text: 'Opened https://github.com/acme/api/pull/42' }] } },
+  })
+  const result = await byName.session_get.callback({ session_id: 'session-running-0001' })
+  assert.equal(result.session.repo, 'acme/api')
+  assert.equal(result.session.prNumber, 42)
 })

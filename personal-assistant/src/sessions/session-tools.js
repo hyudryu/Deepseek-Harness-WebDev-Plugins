@@ -23,6 +23,9 @@ function publicRecord(record) {
     sessionId: record.sessionId,
     friendlyName: record.friendlyName,
     cwd: record.cwd,
+    repo: record.repo,
+    branch: record.branch,
+    prNumber: record.prNumber,
     status: record.status,
     lastActivityAt: record.lastActivityAt,
     currentTask: record.currentTask,
@@ -50,7 +53,7 @@ export function createSessionToolSpecs({ sessionIndex, agents }) {
   return [
     {
       name: 'sessions_list',
-      description: 'List active DeepSeek Harness sessions with friendly name, status, cwd, and last activity. Use this to orient yourself before addressing a session.',
+      description: 'List active DeepSeek Harness sessions with friendly name, status, cwd, PR association, and last activity. Use this to orient yourself before addressing a session.',
       inputSchema: {
         type: 'object',
         additionalProperties: false,

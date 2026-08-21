@@ -22,8 +22,9 @@ export function createTuiToolSpecs({ sessionIndex, bridge }) {
 
   function snapshot(sessionId, terminalId) {
     const page = bridge.readTerminal(sessionId, terminalId)
-    const clean = tail(stripAnsi(page.text), MAX_SNAPSHOT_CHARS)
-    return { terminalId: page.terminalId, clean, menu: parseMenu(clean, page.text) }
+    const raw = tail(page.text, MAX_SNAPSHOT_CHARS)
+    const clean = stripAnsi(raw)
+    return { terminalId: page.terminalId, clean, menu: parseMenu(clean, raw) }
   }
 
   return [
@@ -48,7 +49,7 @@ export function createTuiToolSpecs({ sessionIndex, bridge }) {
     },
     {
       name: 'tui_select',
-      description: 'Select an option in an interactive terminal menu by its 1-based index. Refuses ambiguous menus instead of guessing. Submits with ENTER by default.',
+      description: 'Move to an option in an interactive terminal menu by its 1-based index. Refuses ambiguous menus instead of guessing. Submission requires explicit approval and is unavailable in this version.',
       inputSchema: {
         type: 'object',
         additionalProperties: false,
@@ -57,7 +58,7 @@ export function createTuiToolSpecs({ sessionIndex, bridge }) {
           session_id: { type: 'string' },
           terminal_id: { type: 'string' },
           option_index: { type: 'integer', description: '1-based option index from the parsed menu.' },
-          submit: { type: 'boolean', description: 'Press ENTER after moving (default true).' },
+          submit: { type: 'boolean', description: 'Press ENTER after moving (default false; true requires explicit approval).' },
         },
       },
       callback: async (args = {}) => {
@@ -72,7 +73,7 @@ export function createTuiToolSpecs({ sessionIndex, bridge }) {
           return { ok: false, reason: 'option_out_of_range', option_count: before.menu.options.length, clean_text: before.clean }
         }
         const moves = movementFor(before.menu.selectedIndex, args.option_index - 1)
-        await bridge.sendKeys(args.session_id, before.terminalId, moves, { submit: args.submit ?? true })
+        await bridge.sendKeys(args.session_id, before.terminalId, moves, { submit: args.submit ?? false })
         const after = snapshot(args.session_id, args.terminal_id)
         return {
           ok: true,
@@ -85,7 +86,7 @@ export function createTuiToolSpecs({ sessionIndex, bridge }) {
     },
     {
       name: 'tui_keypress',
-      description: 'Low-level named-key fallback for interactive terminals (arrows, TAB, ESC, CTRL_C/CTRL_D). ENTER is sent via submit. Named keys only — never raw bytes.',
+      description: 'Low-level named-key fallback for interactive terminals (arrows, TAB, ESC, CTRL_C/CTRL_D). Named keys only — never raw bytes. ENTER submission requires explicit approval and is unavailable in this version.',
       inputSchema: {
         type: 'object',
         additionalProperties: false,

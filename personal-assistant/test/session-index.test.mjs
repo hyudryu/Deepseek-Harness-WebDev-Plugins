@@ -35,6 +35,7 @@ test('name is stable once assigned: later user messages do not rename', () => {
   index.noteSessionEvent({ id: 'session-aaa' }, userEvent('Implement toolbar enhancement'))
   index.noteSessionEvent({ id: 'session-aaa' }, userEvent('Also fix the footer alignment', 2))
   assert.equal(index.get('session-aaa').friendlyName, 'Toolbar enhancement')
+  assert.equal(index.get('session-aaa').currentTask, 'Also fix the footer alignment')
 })
 
 test('colliding names get repo or branch context, not numbers', () => {
@@ -92,6 +93,27 @@ test('assistant text and tool results are captured for idle classification', () 
   assert.equal(record.recentToolResults.length, 1)
   assert.equal(record.recentToolResults[0].isError, true)
   assert.equal(record.lastAssistantSeq, 5)
+})
+
+test('new user turns clear stale tool failures', () => {
+  const index = new SessionIndex({ store: createMemoryStore() })
+  index.noteAgentCreated({ agent: fakeAgent('session-aaa', '/work/api') })
+  index.noteSessionEvent({ id: 'session-aaa' }, toolResultEvent(true, 'exit code 1'))
+  assert.equal(index.get('session-aaa').recentToolResults.length, 1)
+  index.noteSessionEvent({ id: 'session-aaa' }, userEvent('What port is configured?', 4))
+  assert.deepEqual(index.get('session-aaa').recentToolResults, [])
+})
+
+test('plugin-routed user instructions refresh currentTask', () => {
+  const index = new SessionIndex({ store: createMemoryStore() })
+  index.noteAgentCreated({ agent: fakeAgent('session-aaa', '/work/api') })
+  index.noteSessionEvent({ id: 'session-aaa' }, userEvent('Initial task'))
+  index.noteSessionEvent({ id: 'session-aaa' }, {
+    type: 'user/message',
+    seq: 2,
+    data: { source: { kind: 'plugin', plugin: 'personal-assistant' }, content: [{ type: 'text', text: 'Fix the follow-up review findings' }] },
+  })
+  assert.equal(index.get('session-aaa').currentTask, 'Fix the follow-up review findings')
 })
 
 test('control session is excluded from events and records', () => {

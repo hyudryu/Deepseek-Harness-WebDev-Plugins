@@ -5,8 +5,9 @@ import { createWatch, validateWatch } from './watch-types.js'
 // injected: reviewState (the Phase-4 pipeline), emitEvent (into the
 // supervisor EventQueue), deleteSchedule (the schedule bridge). Watches
 // persist in the assistant store's `watches` array and survive restarts.
-export function createWatchManager({ store, reviewState, emitEvent, deleteSchedule, now, logger } = {}) {
+export function createWatchManager({ store, reviewState, emitEvent, deleteSchedule, notifications = {}, now, logger } = {}) {
   const clock = now ?? (() => Date.now())
+  const inFlight = new Map()
 
   function activeWatches() {
     return store.state.watches.filter(watch => watch.status === 'active')
@@ -47,7 +48,7 @@ export function createWatchManager({ store, reviewState, emitEvent, deleteSchedu
     await deleteSchedule({ scheduleId: watch.scheduleId, watchId: watch.watchId })
   }
 
-  async function handleTick(watchId) {
+  async function pollWatch(watchId) {
     const watch = findWatch(watchId)
     if (!watch || watch.status !== 'active') return { acted: false }
     let state
@@ -59,7 +60,7 @@ export function createWatchManager({ store, reviewState, emitEvent, deleteSchedu
       return { acted: false }
     }
 
-    if (state.codexThumbsUpOnMainPost) {
+    if (state.codexThumbsUpOnMainPost && watch.exitCondition !== 'manual') {
       await terminate(watch, 'codex_thumbs_up', state.fingerprint)
       return { acted: true }
     }
@@ -70,6 +71,7 @@ export function createWatchManager({ store, reviewState, emitEvent, deleteSchedu
     if (state.latestActivity.kind === 'codex_comment' && state.fingerprint !== watch.lastFingerprint) {
       watch.lastFingerprint = state.fingerprint
       store.save()
+      if (notifications.reviewReceived === false) return { acted: false }
       emitEvent(createEvent({
         kind: 'REVIEW_RECEIVED',
         dedupeKey: `pr:${watch.repo}#${watch.prNumber}:codex-comment:${state.fingerprint}`,
@@ -79,6 +81,16 @@ export function createWatchManager({ store, reviewState, emitEvent, deleteSchedu
     }
     // commit/push/other_comment/none, or an unchanged fingerprint: silent.
     return { acted: false }
+  }
+
+  function handleTick(watchId) {
+    const existing = inFlight.get(watchId)
+    if (existing) return existing
+    const pending = pollWatch(watchId).finally(() => {
+      if (inFlight.get(watchId) === pending) inFlight.delete(watchId)
+    })
+    inFlight.set(watchId, pending)
+    return pending
   }
 
   async function cancelWatch(watchId) {

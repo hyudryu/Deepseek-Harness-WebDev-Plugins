@@ -53,11 +53,16 @@ test('user answer binds to the pending question', async () => {
 
   actor.submitEvent(questionEvent)
   await drained(actor)
-  assert.deepEqual(actor.state.pendingQuestion, { eventId: questionEvent.id, kind: 'INPUT_REQUIRED' })
+  assert.deepEqual(actor.state.pendingQuestions, [{
+    eventId: questionEvent.id,
+    kind: 'INPUT_REQUIRED',
+    sourceSessionId: undefined,
+    friendlyName: undefined,
+  }])
 
   actor.submitUserAnswer('yes, go ahead')
   await drained(actor)
-  assert.equal(actor.state.pendingQuestion, undefined)
+  assert.deepEqual(actor.state.pendingQuestions, [])
   assert.equal(prompts.length, 2)
   assert.ok(prompts[1].includes(questionEvent.id))
   assert.ok(prompts[1].includes('yes, go ahead'))
@@ -67,7 +72,52 @@ test('non-question events do not create a pending question', async () => {
   const actor = new SupervisorActor({ invoke: async () => 'ok', present: () => {} })
   actor.submitEvent(createEvent({ kind: 'COMPLETED' }))
   await drained(actor)
-  assert.equal(actor.state.pendingQuestion, undefined)
+  assert.deepEqual(actor.state.pendingQuestions, [])
+})
+
+test('multiple unresolved questions require event or session disambiguation', async () => {
+  const prompts = []
+  const first = createEvent({ kind: 'INPUT_REQUIRED', sourceSessionId: 'session-a', friendlyName: 'Alpha' })
+  const second = createEvent({ kind: 'INPUT_REQUIRED', sourceSessionId: 'session-b', friendlyName: 'Beta' })
+  const actor = new SupervisorActor({
+    invoke: async prompt => { prompts.push(prompt); return 'noted' },
+    present: () => {},
+  })
+  actor.submitEvent(first)
+  actor.submitEvent(second)
+  await drained(actor)
+  assert.equal(actor.state.pendingQuestions.length, 2)
+
+  actor.submitUserAnswer('yes, proceed')
+  await drained(actor)
+  assert.equal(actor.state.pendingQuestions.length, 2)
+  assert.ok(prompts.at(-1).includes('Multiple session questions are unresolved'))
+
+  actor.submitUserAnswer('For session-b: use the safe option.')
+  await drained(actor)
+  assert.equal(actor.state.pendingQuestions.length, 1)
+  assert.equal(actor.state.pendingQuestions[0].eventId, first.id)
+  assert.ok(prompts.at(-1).includes(second.id))
+})
+
+test('a failed answer invocation leaves its question unresolved', async () => {
+  let calls = 0
+  const event = createEvent({ kind: 'INPUT_REQUIRED', sourceSessionId: 'session-a' })
+  const actor = new SupervisorActor({
+    invoke: async () => {
+      calls += 1
+      if (calls === 2) throw new Error('temporary failure')
+      return 'question presented'
+    },
+    present: () => {},
+  })
+  actor.submitEvent(event)
+  await drained(actor)
+  actor.submitUserAnswer('yes')
+  await drained(actor)
+  assert.equal(actor.state.pendingQuestions.length, 1)
+  assert.equal(actor.state.pendingQuestions[0].eventId, event.id)
+  assert.equal(actor.reservedQuestionIds.size, 0)
 })
 
 test('queue keeps accepting submissions during presentation', async () => {

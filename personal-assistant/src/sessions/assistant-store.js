@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { mkdir, rename, writeFile } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
+import { homedir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 
 // Persistence for assistant state: per-session friendly/custom names and PR
 // associations, plus the recent event-dedupe keys. Kept behind this tiny
@@ -21,8 +22,18 @@ export function emptyState() {
   return { version: STATE_VERSION, sessions: {}, dedupeKeys: [], watches: [] }
 }
 
-export function defaultStatePath() {
-  return process.env[STATE_FILE_ENV] ?? resolve(process.cwd(), '.dsh/personal-assistant-state.json')
+function profileName(argv) {
+  for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] === '--profile' && argv[index + 1]) return argv[index + 1]
+    if (argv[index].startsWith('--profile=')) return argv[index].slice('--profile='.length)
+  }
+  return 'default'
+}
+
+export function defaultStatePath({ env = process.env, argv = process.argv, homeDir = homedir() } = {}) {
+  if (env[STATE_FILE_ENV]) return resolve(env[STATE_FILE_ENV])
+  const dshHome = env.DSH_HOME ? resolve(env.DSH_HOME) : join(homeDir, '.dsh')
+  return join(dshHome, 'profiles', profileName(argv), 'personal-assistant-state.json')
 }
 
 export function createMemoryStore(initial) {

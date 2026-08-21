@@ -37,6 +37,7 @@ export class PersonalAssistantRuntime {
     this.logger = ctx.logger
     this.idleDebounceMs = idleDebounceMs
     this.idleTimers = new Map()
+    this.eventDispatching = false
     this.store = store ?? createJsonFileStore({ logger: this.logger })
     this.eventQueue = new EventQueue({ seenKeys: this.store.state.dedupeKeys })
     this.sessionIndex = new SessionIndex({ excludeSessionId: CONTROL_SESSION_ID, store: this.store })
@@ -98,6 +99,7 @@ export class PersonalAssistantRuntime {
       }),
       emitEvent: event => this.notifyEvent(event),
       deleteSchedule: args => this.scheduleBridge.deleteSchedule(args),
+      notifications: this.config.notifications,
       logger: this.logger,
     })
     this.scheduleBridge.onTick = watchId => this.tickWatch(watchId)
@@ -121,10 +123,11 @@ export class PersonalAssistantRuntime {
     this.supervisor = createSupervisorAgent(this.config, { systemPrompt, tools })
 
     this.actor = new SupervisorActor({
-      invoke: prompt => invokeSupervisor(this.supervisor, prompt),
+      invoke: prompt => invokeSupervisor(this.supervisor, prompt, this.config.strands.maxTurnsPerInvocation),
       present: text => notifier.postAssistantMessage(text),
       onError: (error, item) => this.logger?.warn?.(`personal-assistant: supervisor failed on ${item.type}: ${error instanceof Error ? error.message : String(error)}`),
     })
+    this.drainEventQueue()
   }
 
   // Every model call the control session's loop would make is rejected.
@@ -182,14 +185,32 @@ export class PersonalAssistantRuntime {
     this.idleTimers.set(sessionId, timer)
   }
 
-  // Entry point for session-event producers: dedupe through the
-  // queue, then hand to the actor for serialized presentation. Accepted
-  // dedupe keys are persisted so a restart does not re-notify.
+  // Entry point for session-event producers. Events remain in the priority
+  // queue until the actor is ready, and their dedupe keys become durable only
+  // after the user-facing presentation succeeds.
   notifyEvent(event) {
-    if (this.eventQueue.push(event)) {
-      this.store.state.dedupeKeys = [...this.eventQueue.seenKeys]
-      this.store.save()
-      this.actor.submitEvent(event)
+    if (!this.eventQueue.push(event)) return
+    this.drainEventQueue()
+  }
+
+  async drainEventQueue() {
+    if (this.eventDispatching || !this.actor) return
+    this.eventDispatching = true
+    try {
+      let event
+      while ((event = this.eventQueue.next()) !== undefined) {
+        const outcome = await this.actor.submitEvent(event)
+        if (!outcome.ok) {
+          this.eventQueue.release(event)
+          continue
+        }
+        this.eventQueue.ack(event)
+        this.store.state.dedupeKeys = [...this.eventQueue.seenKeys]
+        this.store.save()
+      }
+    } finally {
+      this.eventDispatching = false
+      if (this.eventQueue.size > 0) this.drainEventQueue()
     }
   }
 }

@@ -20,6 +20,11 @@ test('rule precedence: question beats completion, blocked beats failure', () => 
   assert.equal(classifyIdleTransition({ lastAssistantText: 'Build failed and I cannot proceed without a decision.' }), 'BLOCKED')
 })
 
+test('declarative which clauses are not treated as questions', () => {
+  assert.equal(classifyIdleTransition({ lastAssistantText: 'Implemented caching, which reduces latency.' }), 'COMPLETED')
+  assert.equal(classifyIdleTransition({ lastAssistantText: 'Which cache should I use?' }), 'INPUT_REQUIRED')
+})
+
 test('recovered failure is not FAILED: later success statement wins', () => {
   assert.equal(classifyIdleTransition({ lastAssistantText: 'Tests were failing, but I fixed the mock and now all tests pass.' }), 'COMPLETED')
 })

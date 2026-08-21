@@ -15,27 +15,45 @@ export class SupervisorActor {
     this.onError = onError
     this.queue = []
     this.draining = false
+    this.reservedQuestionIds = new Set()
     this.state = {
       activePresentation: false,
-      pendingQuestion: undefined,
+      pendingQuestions: [],
       queuedEvents: 0,
     }
   }
 
   submitEvent(event) {
-    this.queue.push({ type: 'event', event })
-    this.state.queuedEvents = this.queue.length
-    this.kick()
+    return this.enqueue({ type: 'event', event })
   }
 
   submitUserAnswer(text) {
-    // Bind the answer to the question that is pending RIGHT NOW; later
-    // presentations must not steal it.
-    const question = this.state.pendingQuestion
-    this.state.pendingQuestion = undefined
-    this.queue.push({ type: 'answer', text, question })
+    let question
+    let ambiguousQuestions
+    const available = this.state.pendingQuestions.filter(candidate => !this.reservedQuestionIds.has(candidate.eventId))
+    if (available.length === 1) {
+      question = available[0]
+    } else if (available.length > 1) {
+      const matches = available.filter(candidate =>
+        text.includes(candidate.eventId) || (candidate.sourceSessionId !== undefined && text.includes(candidate.sourceSessionId)),
+      )
+      if (matches.length === 1) {
+        question = matches[0]
+      } else {
+        ambiguousQuestions = available.map(candidate => ({ ...candidate }))
+      }
+    }
+    if (question) this.reservedQuestionIds.add(question.eventId)
+    return this.enqueue({ type: 'answer', text, question, ambiguousQuestions })
+  }
+
+  enqueue(item) {
+    const completion = new Promise(resolve => {
+      this.queue.push({ ...item, resolve })
+    })
     this.state.queuedEvents = this.queue.length
     this.kick()
+    return completion
   }
 
   kick() {
@@ -43,6 +61,7 @@ export class SupervisorActor {
     this.draining = true
     this.drainPromise = this.drain().finally(() => {
       this.draining = false
+      if (this.queue.length > 0) this.kick()
     })
   }
 
@@ -51,17 +70,34 @@ export class SupervisorActor {
       const item = this.queue.shift()
       this.state.queuedEvents = this.queue.length
       this.state.activePresentation = true
+      let outcome
       try {
-        const prompt = item.type === 'answer' ? buildAnswerPrompt(item.text, item.question) : buildEventPrompt(item.event)
+        const prompt = item.type === 'answer'
+          ? buildAnswerPrompt(item.text, item.question, item.ambiguousQuestions)
+          : buildEventPrompt(item.event)
         const response = await this.invoke(prompt)
         await this.present(response, item)
         if (item.type === 'event' && QUESTION_KINDS.includes(item.event.kind)) {
-          this.state.pendingQuestion = { eventId: item.event.id, kind: item.event.kind }
+          this.state.pendingQuestions.push({
+            eventId: item.event.id,
+            kind: item.event.kind,
+            sourceSessionId: item.event.sourceSessionId,
+            friendlyName: item.event.friendlyName,
+          })
+        } else if (item.type === 'answer' && item.question) {
+          this.state.pendingQuestions = this.state.pendingQuestions.filter(candidate => candidate.eventId !== item.question.eventId)
+          this.reservedQuestionIds.delete(item.question.eventId)
         }
+        outcome = { ok: true }
       } catch (error) {
-        if (this.onError) this.onError(error, item)
+        if (item.type === 'answer' && item.question) this.reservedQuestionIds.delete(item.question.eventId)
+        try {
+          if (this.onError) this.onError(error, item)
+        } catch {}
+        outcome = { ok: false, error }
       } finally {
         this.state.activePresentation = false
+        item.resolve(outcome)
       }
     }
   }

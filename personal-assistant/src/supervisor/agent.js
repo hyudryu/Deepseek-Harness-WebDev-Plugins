@@ -16,7 +16,7 @@ export function createSupervisorAgent(config, { systemPrompt, tools } = {}) {
 
 // Thin wrapper: invoke once and return the final text (AgentResult.toString()
 // extracts text blocks, or serialized structured output when present).
-export async function invoke(agent, prompt) {
-  const result = await agent.invoke(prompt)
+export async function invoke(agent, prompt, maxTurnsPerInvocation) {
+  const result = await agent.invoke(prompt, { limits: { turns: maxTurnsPerInvocation } })
   return result.toString()
 }

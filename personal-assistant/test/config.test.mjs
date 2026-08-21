@@ -38,7 +38,22 @@ test('normalizeConfig validates booleans and login arrays', () => {
   assert.throws(() => normalizeConfig({ enabled: 'yes' }), /enabled/)
   assert.throws(() => normalizeConfig({ notifications: { ciPassed: 1 } }), /ciPassed/)
   assert.throws(() => normalizeConfig({ github: { codexActorLogins: [''] } }), /codexActorLogins/)
-  assert.throws(() => normalizeConfig({ permissions: { autonomyLevel: 4 } }), /autonomyLevel/)
+  assert.throws(() => normalizeConfig({ permissions: { autonomyLevel: 1 } }), /only Level 2/)
+  assert.throws(() => normalizeConfig({ permissions: { autonomyLevel: 3 } }), /only Level 2/)
+})
+
+test('normalizeConfig rejects unknown fields at every level', () => {
+  assert.throws(() => normalizeConfig({ enabld: true }), /config contains unknown field: enabld/)
+  assert.throws(() => normalizeConfig({ notifications: { inputRequred: false } }), /notifications contains unknown field: inputRequred/)
+  assert.throws(() => normalizeConfig({ strands: { extra: true } }), /strands contains unknown field: extra/)
+  assert.throws(() => normalizeConfig({ personality: { extra: true } }), /personality contains unknown field: extra/)
+  assert.throws(() => normalizeConfig({ github: { extra: true } }), /github contains unknown field: extra/)
+  assert.throws(() => normalizeConfig({ permissions: { extra: true } }), /permissions contains unknown field: extra/)
+})
+
+test('normalizeConfig rejects non-object sections', () => {
+  assert.throws(() => normalizeConfig(null), /config must be an object/)
+  assert.throws(() => normalizeConfig({ notifications: [] }), /notifications must be an object/)
 })
 
 test('normalizeConfig never stores an api key value, only the env var name', () => {

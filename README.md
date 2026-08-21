@@ -61,7 +61,7 @@ Capabilities include:
 - session discovery with deterministic friendly names (derived from the first task, repo, or branch; explicit renames win forever);
 - completion classification — idle is never equated with done; a deterministic classifier distinguishes COMPLETED / INPUT_REQUIRED / FAILED / BLOCKED from the session's own output;
 - cross-session messaging: followup when idle, inject when running, steer when urgent;
-- an owner-fenced TUI bridge (`tui_snapshot` / `tui_select` / `tui_keypress`, named keys only, ambiguous menus refused rather than guessed);
+- an owner-fenced TUI bridge (`tui_snapshot` / `tui_select` / `tui_keypress`, named keys only, ambiguous menus refused rather than guessed); menu navigation is autonomous, while ENTER submission refuses until an approval UI exists;
 - a compact `github_pr_review_state` tool: Codex thumbs-up detection on the main post, timeline-aware latest activity (latest comment ≠ latest activity — a newer commit means Codex has not reviewed the latest state);
 - persistent review watches riding on durable Harness schedules, with an in-process timer fallback when scheduling is unavailable;
 - dedupe everywhere, so nothing is ever announced twice — including across restarts;
@@ -89,9 +89,9 @@ The package installs its runtime dependencies (`@strands-agents/sdk` and `openai
 | `notifications.*` | all `true` except `ciPassed: false` | per-kind toggles (completed, inputRequired, failed, blocked, reviewReceived, ciFailed, ciPassed) |
 | `github.codexActorLogins` | `[codex]` | exact, case-insensitive login match |
 | `github.defaultWatchIntervalSeconds` | `300` | minimum 300 |
-| `permissions.autonomyLevel` | `2` | Level-2: acts autonomously, destructive actions refuse |
+| `permissions.autonomyLevel` | `2` | Level-2 only: acts autonomously, destructive actions and TUI submission refuse |
 
-**State file:** friendly names, PR associations, the dedupe cache, and durable watches persist in `.dsh/personal-assistant-state.json` (override with the `DSH_PERSONAL_ASSISTANT_STATE` env var).
+**State file:** friendly names, PR associations, the delivered-event dedupe cache, and durable watches persist per profile in `$DSH_HOME/profiles/<profile>/personal-assistant-state.json` (`~/.dsh/...` when `DSH_HOME` is unset; override with the `DSH_PERSONAL_ASSISTANT_STATE` env var).
 
 **Not yet implemented:** voice/TTS/STT, vision perception, a settings UI, and an approval UI (planned spec phases) are not present in this version.
 

@@ -11,7 +11,7 @@ import { createEvent } from '../supervisor/event-types.js'
 // Seam: an optional Strands model classification for the ambiguous tail is a
 // later refinement — deliberately not wired here (this module stays pure).
 
-const QUESTION_PATTERN = /(should i|shall i|which|do you want|want me to|would you like me)/i
+const QUESTION_PATTERN = /(should i|shall i|do you want|want me to|would you like me)/i
 const BLOCKED_PATTERN = /(i can't continue|i cannot continue|can't proceed|cannot proceed|until you provide|blocked)/i
 const BLOCKED_NEED_PATTERN = /need.*(credential|secret|password|input|decision)/i
 const FAILURE_PATTERN = /(still fails?|build failed|tests? (are )?failing|error:)/i

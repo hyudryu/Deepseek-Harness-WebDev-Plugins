@@ -52,11 +52,27 @@ test('dedupeKey duplicates are dropped', () => {
 
 test('bounded dedupe cache eviction allows re-push', () => {
   const queue = new EventQueue({ dedupeCacheSize: 2 })
-  queue.push(event('INFO', 'a'))
-  queue.push(event('INFO', 'b'))
-  queue.push(event('INFO', 'c')) // evicts 'a'
+  for (const key of ['a', 'b', 'c']) {
+    queue.push(event('INFO', key))
+    queue.ack(queue.next())
+  }
   assert.equal(queue.push(event('INFO', 'a')), true) // evicted, so accepted (evicts 'b')
   assert.equal(queue.push(event('INFO', 'c')), false) // still cached
+})
+
+test('dedupe keys are durable only after ack and retryable after release', () => {
+  const queue = new EventQueue()
+  const first = event('FAILED', 'retry-me')
+  assert.equal(queue.push(first), true)
+  assert.equal(queue.push(event('FAILED', 'retry-me')), false)
+  assert.deepEqual(queue.seenKeys, [])
+  assert.equal(queue.next(), first)
+  queue.release(first)
+  assert.equal(queue.push(event('FAILED', 'retry-me')), true)
+  const retry = queue.next()
+  queue.ack(retry)
+  assert.deepEqual(queue.seenKeys, ['retry-me'])
+  assert.equal(queue.push(event('FAILED', 'retry-me')), false)
 })
 
 test('peek, size, clear', () => {

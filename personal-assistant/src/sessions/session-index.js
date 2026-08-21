@@ -73,12 +73,15 @@ export class SessionIndex {
     const record = this.records.get(sessionId)
     if (!record) return
 
-    if (event.type === 'user/message' && record.task === undefined && event.data.source?.kind === 'user') {
+    if (event.type === 'user/message') {
+      record.recentToolResults = []
       const text = messageText(event.data).trim()
       if (text !== '') {
-        record.task = text
+        if (record.task === undefined && event.data.source?.kind === 'user') {
+          record.task = text
+          record.friendlyName = this.assignName(record)
+        }
         record.currentTask = text.slice(0, 120)
-        record.friendlyName = this.assignName(record)
       }
     } else if (event.type === 'assistant/message') {
       const text = messageText(event.data.message).trim()

@@ -5,7 +5,7 @@ export const AUTONOMOUS_TOOLS = Object.freeze([
   'session_get',
   'session_send',
   'tui_snapshot',
-  'tui_select', // non-destructive menu navigation only
+  'tui_select', // navigation only; submit=true requires an approval flow
   'tui_keypress', // named keys only; CTRL_C/CTRL_D interrupts on a running process stay allowed at Level-2
   'github_pr_review_state',
   'watch_create',
@@ -20,7 +20,10 @@ export const APPROVAL_REQUIRED = Object.freeze([
   'watch_delete_all',
 ])
 
-export function checkToolCall(name, _args = {}) {
+export function checkToolCall(name, args = {}) {
+  if ((name === 'tui_select' || name === 'tui_keypress') && args.submit === true) {
+    return { allowed: false, reason: `tool "${name}" cannot submit terminal input without explicit user approval` }
+  }
   if (AUTONOMOUS_TOOLS.includes(name)) return { allowed: true }
   if (APPROVAL_REQUIRED.some(entry => entry === name || entry.startsWith(`${name}:`))) {
     return { allowed: false, reason: `tool "${name}" is destructive and requires explicit user approval` }
