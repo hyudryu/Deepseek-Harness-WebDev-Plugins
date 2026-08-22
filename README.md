@@ -4,7 +4,7 @@
 
 > **🤖 Also note:** All of these tools were coded with **DeepSeek-V4-Flash**, served on **2× DGX Sparks** using **DeepSeek Harness**.
 
-Three installable DeepSeek Harness bundles for coding-agent workflows.
+Four installable DeepSeek Harness bundles for coding-agent workflows.
 
 ## 1. `dsh-browser-control`
 
@@ -88,6 +88,54 @@ This is a router, not a tool — there is no `vision_router` tool to call. A `vi
 
 </details>
 
+## 4. `dsh-personal-assistant`
+
+<details>
+<summary><b>Global personal-assistant supervisor plugin</b> — click to expand</summary>
+
+A global personal-assistant supervisor (one per Harness profile). It owns a dedicated control session titled "Personal Assistant" and watches every coding session through a Strands Agents SDK reasoning loop: it surfaces completions, failures, and questions from your sessions, routes your answers back to the right session, operates interactive TUI menus cross-session, and keeps persistent GitHub/Codex PR review watches. It is a control plane, not a coding worker — it never writes or edits code itself.
+
+Capabilities include:
+
+- session discovery with deterministic friendly names (derived from the first task, repo, or branch; explicit renames win forever);
+- completion classification — idle is never equated with done; a deterministic classifier distinguishes COMPLETED / INPUT_REQUIRED / FAILED / BLOCKED from the session's own output;
+- cross-session messaging: followup when idle, inject when running, steer when urgent;
+- an owner-fenced TUI bridge (`tui_snapshot` / `tui_select` / `tui_keypress`, named keys only, ambiguous menus refused rather than guessed); menu navigation is autonomous, while ENTER submission refuses until an approval UI exists;
+- a compact `github_pr_review_state` tool: Codex thumbs-up detection on the main post, timeline-aware latest activity (latest comment ≠ latest activity — a newer commit means Codex has not reviewed the latest state);
+- persistent review watches riding on durable Harness schedules, with an in-process timer fallback when scheduling is unavailable;
+- dedupe everywhere, so nothing is ever announced twice — including across restarts;
+- Level-2 permissions enforced outside the prompt: every supervisor tool is policy-wrapped, and destructive or unlisted actions refuse with `approval_required` until an approval UI exists;
+- personality presets (`friendly`/`playful`/`professional`/`serious`/`minimal`/`custom`) that change phrasing only, never behavior.
+
+**Prerequisites:**
+
+- the GitHub CLI (`gh`), installed and authenticated, for PR review watches;
+- an OpenAI-compatible model endpoint for the supervisor loop (configured via `strands.baseUrl` / `strands.model`; the API key is read at runtime from the env var named by `strands.apiKeyEnv`, never stored in config).
+
+The package installs its runtime dependencies (`@strands-agents/sdk` and `openai`) through your package manager, just like browser-control installs Playwright.
+
+**Configuration** (defaults from `cordis.patch.yml`):
+
+| Field | Default | Notes |
+| --- | --- | --- |
+| `enabled` | `true` | `false` registers nothing but the skill |
+| `strands.modelProvider` | `openai-compatible` | only supported provider |
+| `strands.model` | `deepseek-v4-flash` | supervisor model id |
+| `strands.baseUrl` | `http://localhost:8000/v1` | OpenAI-compatible endpoint |
+| `strands.apiKeyEnv` | `ASSISTANT_API_KEY` | name of the env var holding the key |
+| `strands.maxTurnsPerInvocation` | `8` | supervisor loop bound |
+| `personality.preset` | `friendly` | style only; `custom` requires `personality.customPrompt` |
+| `notifications.*` | all `true` | per-kind toggles (completed, inputRequired, failed, blocked, reviewReceived) |
+| `github.codexActorLogins` | `[codex]` | exact, case-insensitive login match |
+| `github.defaultWatchIntervalSeconds` | `300` | minimum 300 |
+| `permissions.autonomyLevel` | `2` | `1` = conservative (ask before acting), `2` = acts autonomously; destructive actions and TUI submission refuse at both levels. Unknown config fields are rejected at load time |
+
+**State file:** friendly names, PR associations, the delivered-event dedupe cache, and durable watches persist per profile in `$DSH_HOME/profiles/<profile>/personal-assistant-state.json` (`~/.dsh/...` when `DSH_HOME` is unset; override with the `DSH_PERSONAL_ASSISTANT_STATE` env var).
+
+**Not yet implemented:** voice/TTS/STT, vision perception, a settings UI, and an approval UI (planned spec phases) are not present in this version.
+
+</details>
+
 ## Installation
 
 From this directory, install these bundles into the profile you use for coding (replace `tui` with your profile name):
@@ -96,6 +144,7 @@ From this directory, install these bundles into the profile you use for coding (
 dsh plugin --profile tui add ./browser-control
 dsh plugin --profile tui add ./qa-testing
 dsh plugin --profile tui add ./vision-router
+dsh plugin --profile tui add ./personal-assistant
 ```
 
 Verify composition:

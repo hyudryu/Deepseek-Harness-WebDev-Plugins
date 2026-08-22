@@ -1,0 +1,23 @@
+{
+  "name": "dsh-personal-assistant",
+  "version": "0.1.0",
+  "description": "Global personal-assistant supervisor for DeepSeek Harness coding sessions",
+  "type": "module",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "skills/personal-assistant.md",
+    "src/"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@strands-agents/sdk": "^1.13.0",
+    "openai": "^6.49.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
