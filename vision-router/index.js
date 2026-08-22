@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs'
 import z from '@deepseek-ai/schemastery'
-import { DEFAULTS, normalizeConfig, routeRequest, assembleVisionText, messagesHaveImage } from './core.js'
+import {
+  DEFAULTS,
+  readRoutingConfig,
+  routeRequest,
+  assembleVisionText,
+  messagesHaveImage,
+} from './core.js'
 
 export const name = 'vision-router'
 export const inject = ['llm', 'settings', 'skills']
@@ -28,7 +34,7 @@ const settingsSchema = z.object({
   visionPrompt: z.string().default(DEFAULTS.visionPrompt),
   textProvider: z.string().default(''),
   textModel: z.string().default(''),
-  maxAnalysisChars: z.number().int().positive().default(DEFAULTS.maxAnalysisChars),
+  maxAnalysisChars: z.number().min(1).default(DEFAULTS.maxAnalysisChars),
 })
 
 function installSettings(ctx, rawConfig) {
@@ -71,10 +77,15 @@ function installSettings(ctx, rawConfig) {
 // silently disable routing).
 function readConfig() {
   const raw = currentSettings ?? {}
-  const visionProvider = typeof raw.visionProvider === 'string' ? raw.visionProvider.trim() : ''
-  const visionModel = typeof raw.visionModel === 'string' ? raw.visionModel.trim() : ''
-  if (visionProvider === '' || visionModel === '') return { status: 'off' }
-  return { status: 'ok', config: normalizeConfig(raw) }
+  const resolved = readRoutingConfig(raw)
+  if (resolved.status === 'unconfigured') {
+    throw new Error(
+      `vision-router: ${resolved.config.visionProvider === '' ? 'visionProvider' : 'visionModel'} is required (the configured vision model)`,
+    )
+  }
+  if (resolved.status === 'ok') return { status: 'ok', config: resolved.config }
+  if (resolved.status === 'off') return { status: 'off' }
+  return { status: 'disabled' }
 }
 
 function warnOff(ctx) {
@@ -108,6 +119,9 @@ export function apply(ctx, rawConfig = {}) {
           )
         }
         warnOff(ctx)
+        return resolved
+      }
+      if (read.status === 'disabled') {
         return resolved
       }
       return routeRequest(resolved, read.config, (options) => generate(ctx, options))

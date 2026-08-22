@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   DEFAULTS,
   normalizeConfig,
+  readRoutingConfig,
   contentHasImage,
   messagesHaveImage,
   collectImages,
@@ -93,6 +94,50 @@ test('visionMessagesFor keeps system context and sends prompt + images', () => {
   assert.deepEqual(blocks[1], { type: 'image', src: 'i' })
 })
 
+test('visionMessagesFor strips images from retained system context but still analyzes them', () => {
+  const system = {
+    role: 'system',
+    content: [{ type: 'text', text: 'sys' }, { type: 'image', src: 'sys-img' }],
+  }
+  const messages = [
+    system,
+    { role: 'user', content: [{ type: 'text', text: 'q' }, { type: 'image', src: 'user-img' }] },
+  ]
+  const vision = visionMessagesFor(messages, 'ANALYZE')
+  // The retained system message must not keep the image (the vision model
+  // would receive it twice, and providers may reject system images).
+  assert.equal(vision[0].role, 'system')
+  assert.deepEqual(vision[0].content, [{ type: 'text', text: 'sys' }])
+  // The original system message object is left untouched.
+  assert.equal(system.content.length, 2)
+  // Both images reach the vision model exactly once, in the user message.
+  const srcs = vision[1].content.filter((b) => b.type === 'image').map((b) => b.src)
+  assert.deepEqual(srcs, ['sys-img', 'user-img'])
+})
+
+test('readRoutingConfig distinguishes off, disabled, unconfigured, and ok', () => {
+  // Intentionally unconfigured: empty vision target, everything else valid.
+  assert.equal(readRoutingConfig({}).status, 'off')
+  // Disabled routing wins over the missing vision target: no throw.
+  assert.equal(readRoutingConfig({ enabled: false }).status, 'disabled')
+  // A half-configured vision target is a configuration error, not "off".
+  assert.equal(readRoutingConfig({ visionProvider: 'p' }).status, 'unconfigured')
+  assert.equal(readRoutingConfig({ visionModel: 'm' }).status, 'unconfigured')
+  const ok = readRoutingConfig({ visionProvider: 'p', visionModel: 'm' })
+  assert.equal(ok.status, 'ok')
+  assert.equal(ok.config.visionProvider, 'p')
+})
+
+test('readRoutingConfig validates malformed fields even without a vision target', () => {
+  assert.throws(() => readRoutingConfig({ maxAnalysisChars: 0 }), /maxAnalysisChars must be a positive integer/)
+  assert.throws(() => readRoutingConfig({ enabled: 'yes' }), /enabled must be a boolean/)
+  assert.throws(() => readRoutingConfig({ visionPrompt: 42 }), /visionPrompt must be a string/)
+  assert.throws(() => readRoutingConfig({ visionPrompt: { text: 'x' } }), /visionPrompt must be a string/)
+  // An empty visionPrompt falls back to the documented default.
+  assert.equal(readRoutingConfig({ visionPrompt: '' }).config.visionPrompt, DEFAULTS.visionPrompt)
+  assert.equal(readRoutingConfig({ visionPrompt: '  ' }).config.visionPrompt, DEFAULTS.visionPrompt)
+})
+
 test('withVisionAnalysis strips images and prepends analysis to newest user message', () => {
   const messages = [
     { role: 'user', content: [{ type: 'text', text: 'q' }, { type: 'image' }] },
@@ -102,11 +147,27 @@ test('withVisionAnalysis strips images and prepends analysis to newest user mess
   const out = withVisionAnalysis(messages, 'the picture shows X', 1000)
   // No image blocks anywhere.
   assert.equal(JSON.stringify(out).includes('"type":"image"'), false)
+  // The newest user message gets the analysis prepended for overall context.
   const lastUser = out[out.length - 1]
-  assert.equal(lastUser.content[0].type, 'text')
-  assert.match(lastUser.content[0].text, /\[Vision analysis\]/m)
+  assert.match(lastUser.content[0].text, /\[Vision analysis\]/)
   assert.match(lastUser.content[0].text, /the picture shows X/)
   assert.equal(lastUser.content[1].text, 'follow up')
+  // The older user message keeps its own in-place replacement, unprepended.
+  const firstUser = out[0]
+  assert.equal(firstUser.role, 'user')
+  assert.equal(firstUser.content[0].text, 'q')
+  assert.match(firstUser.content[1].text, /\[Vision analysis\]/)
+})
+
+test('withVisionAnalysis does not duplicate the analysis in an image-bearing user message', () => {
+  const messages = [
+    { role: 'user', content: [{ type: 'text', text: 'what is this?' }, { type: 'image' }] },
+  ]
+  const out = withVisionAnalysis(messages, 'the picture shows X', 1000)
+  const occurrences = JSON.stringify(out).match(/\[Vision analysis\]/g) ?? []
+  assert.equal(occurrences.length, 1)
+  assert.equal(out[0].content[0].text, 'what is this?')
+  assert.match(out[0].content[1].text, /the picture shows X/)
 })
 
 test('withVisionAnalysis truncates long analyses', () => {
@@ -131,6 +192,11 @@ test('assembleVisionText joins deltas and fails loudly on error/abort', async ()
     yield { type: 'finish', reason: { kind: 'aborted' } }
   })()
   await assert.rejects(() => assembleVisionText(abort), /aborted/)
+
+  const incomplete = (async function* () {
+    yield { type: 'text-delta', text: 'partial' }
+  })()
+  await assert.rejects(() => assembleVisionText(incomplete), /successful finish/)
 })
 
 test('textRoute inherits unset sides from the request', () => {

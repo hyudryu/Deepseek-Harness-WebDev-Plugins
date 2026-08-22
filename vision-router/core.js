@@ -30,20 +30,18 @@ function optionalString(value, name) {
   return value.trim()
 }
 
-// Normalize and validate the resolved configuration. The vision target is
-// required for routing to activate; the text target is optional and each field
-// inherits from the incoming request (the session-selected model) when unset.
-export function normalizeConfig(input = {}) {
+function validateCoreInput(input = {}) {
   const enabled = input.enabled ?? DEFAULTS.enabled
   if (typeof enabled !== 'boolean') throw new Error('vision-router: enabled must be a boolean')
 
   const visionProvider = optionalString(input.visionProvider, 'visionProvider')
   const visionModel = optionalString(input.visionModel, 'visionModel')
-  if (visionProvider === '') throw new Error('vision-router: visionProvider is required (the provider of the vision-capable model)')
-  if (visionModel === '') throw new Error('vision-router: visionModel is required (the vision-capable model id)')
 
   const textProvider = optionalString(input.textProvider, 'textProvider')
   const textModel = optionalString(input.textModel, 'textModel')
+  if (input.visionPrompt !== undefined && typeof input.visionPrompt !== 'string') {
+    throw new Error('vision-router: visionPrompt must be a string')
+  }
 
   const visionPrompt =
     typeof input.visionPrompt === 'string' && input.visionPrompt.trim() !== ''
@@ -52,7 +50,7 @@ export function normalizeConfig(input = {}) {
 
   const maxAnalysisChars = positiveInt(input.maxAnalysisChars, DEFAULTS.maxAnalysisChars, 'maxAnalysisChars')
 
-  return Object.freeze({
+  return {
     enabled,
     visionProvider,
     visionModel,
@@ -60,7 +58,47 @@ export function normalizeConfig(input = {}) {
     textProvider,
     textModel,
     maxAnalysisChars,
+    hasVisionTarget: visionProvider !== '' || visionModel !== '',
+  }
+}
+
+// Normalize and validate the resolved configuration. The vision target is
+// required for routing to activate; the text target is optional and each field
+// inherits from the incoming request (the session-selected model) when unset.
+export function normalizeConfig(input = {}) {
+  const parsed = validateCoreInput(input)
+  if (!parsed.hasVisionTarget) {
+    throw new Error('vision-router: visionProvider is required (the provider of the vision-capable model)')
+  }
+  if (parsed.visionProvider === '' || parsed.visionModel === '') {
+    throw new Error('vision-router: visionModel is required (the vision-capable model id)')
+  }
+
+  return Object.freeze({
+    enabled: parsed.enabled,
+    visionProvider: parsed.visionProvider,
+    visionModel: parsed.visionModel,
+    visionPrompt: parsed.visionPrompt,
+    textProvider: parsed.textProvider,
+    textModel: parsed.textModel,
+    maxAnalysisChars: parsed.maxAnalysisChars,
   })
+}
+
+// Resolve configuration while allowing the intentionally-unconfigured path.
+export function readRoutingConfig(input = {}) {
+  const parsed = validateCoreInput(input)
+  if (parsed.enabled === false) {
+    return { status: 'disabled', config: parsed }
+  }
+  if (!parsed.hasVisionTarget) return { status: 'off', config: parsed }
+  if (parsed.visionProvider === '') {
+    return { status: 'unconfigured', config: parsed }
+  }
+  if (parsed.visionModel === '') {
+    return { status: 'unconfigured', config: parsed }
+  }
+  return { status: 'ok', config: normalizeConfig(input) }
 }
 
 // True when typed content contains an image block, recursing into nested
@@ -116,12 +154,36 @@ export function latestUserText(messages) {
 // image from the original request.
 export function visionMessagesFor(messages, visionPrompt) {
   const images = []
-  for (const message of messages || []) collectImages(message && message.content, images)
+  const systemMessages = []
+  const addSystemContent = (content) => {
+    if (!Array.isArray(content)) return []
+    if (!content.some((block) => block && block.type === 'image')) return content
+    return content.filter((block) => block && block.type !== 'image')
+  }
+
+  for (const message of messages || []) {
+    if (message == null) continue
+    // Images are collected from every message (system included) so the vision
+    // model sees each image exactly once: in the constructed user message.
+    collectImages(message.content, images)
+    if (message.role === 'system') {
+      const content = addSystemContent(message.content)
+      if (content.length > 0) {
+        if (content === message.content) {
+          systemMessages.push(message)
+        } else {
+          systemMessages.push({ ...message, content })
+        }
+      }
+      continue
+    }
+  }
   const userText = latestUserText(messages || [])
   const text = userText.trim() !== '' ? `${visionPrompt}\n\nUser question:\n${userText}` : visionPrompt
-  const system = (messages || []).find((message) => message != null && message.role === 'system')
   const result = []
-  if (system != null) result.push(system)
+  for (const message of systemMessages) {
+    result.push(message)
+  }
   result.push({ role: 'user', content: [{ type: 'text', text }, ...images] })
   return result
 }
@@ -166,7 +228,8 @@ function replaceImagesWithAnalysis(content, analysisText) {
 // block is replaced in place by the vision analysis (inside tool results this
 // keeps each analysis associated with its own tool call rather than emptying
 // the result), and the same analysis is reflected at the newest user message
-// for overall context.
+// for overall context. If that message's own image was already replaced in
+// place with the analysis, the analysis is not prepended a second time.
 export function withVisionAnalysis(messages, analysis, maxAnalysisChars) {
   const analysisText = `[Vision analysis]\n${cap(String(analysis ?? ''), maxAnalysisChars)}`
   const transformed = (messages || []).map((message) => {
@@ -177,6 +240,14 @@ export function withVisionAnalysis(messages, analysis, maxAnalysisChars) {
   for (let i = transformed.length - 1; i >= 0; i -= 1) {
     const message = transformed[i]
     if (message == null || message.role !== 'user' || !Array.isArray(message.content)) continue
+    const hasAnalysis = message.content.some(
+      (block) =>
+        block != null
+        && block.type === 'text'
+        && typeof block.text === 'string'
+        && block.text.includes('[Vision analysis]'),
+    )
+    if (hasAnalysis) return transformed
     transformed[i] = {
       ...message,
       content: [{ type: 'text', text: analysisText }, ...message.content],
@@ -192,6 +263,7 @@ export function withVisionAnalysis(messages, analysis, maxAnalysisChars) {
 // a `finish` chunk with an error/aborted reason fails the call loudly.
 export async function assembleVisionText(chunks) {
   let text = ''
+  let finished = false
   for await (const chunk of chunks || []) {
     if (chunk == null || typeof chunk !== 'object') continue
     if (chunk.type === 'text-delta' && typeof chunk.text === 'string') text += chunk.text
@@ -203,8 +275,10 @@ export async function assembleVisionText(chunks) {
         )
       }
       if (chunk.reason.kind === 'aborted') throw new Error('vision-router: vision model call was aborted')
+      if (chunk.reason.kind === 'success') finished = true
     }
   }
+  if (!finished) throw new Error('vision-router: vision model stream ended without a successful finish')
   if (text.trim() === '') {
     throw new Error('vision-router: vision model returned no analysis text (an empty result is treated as a vision-stage failure)')
   }
