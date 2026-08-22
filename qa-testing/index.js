@@ -139,6 +139,234 @@ function escapeInline(text) {
   return String(text).replaceAll('\n', ' ').replaceAll('\r', ' ').replaceAll('`', "'").trim()
 }
 
+// Loose detection of a QA/testing section in a PR body. Matches any real
+// markdown heading whose text indicates QA/testing intent, so both the
+// plugin's own machine-managed "## QA Testing" block and hand-written sections
+// like "QA section", "QA test", or "Test steps" satisfy the condition.
+const QA_HEADING_RE = /\b(qa|quality\s+assurance|test|testing|tests|test\s+plan|test\s+steps|verification|checklist)\b/i
+const MAX_QA_SECTION_CHARS = 4000
+
+function headingLevel(line) {
+  const match = line.match(/^[ \t]*#{1,6}[ \t]+/)
+  return match ? match[0].replace(/[ \t#]/g, '').length : Infinity
+}
+
+function qaSectionInfoLegacy(body) {
+  if (typeof body !== 'string') return { hasQaSection: false, heading: null, content: '' }
+  const lines = body.split('\n')
+  let fence = null
+  let indented = false
+  let headingLine = -1
+  let heading = null
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i]
+    const trimmed = raw.trim()
+    const isBlank = trimmed === ''
+    // Skip fenced code blocks (``` or ~~~).
+    if (fence) {
+      if (trimmed.startsWith(fence)) fence = null
+      continue
+    }
+    if (/^(```|~~~)/.test(trimmed)) {
+      fence = trimmed.slice(0, 3)
+      continue
+    }
+    // Skip indented (4+ space / tab) code blocks and blank lines within them.
+    if (indented && (isBlank || /^(?: {4}|\t)/.test(raw))) continue
+    if (indented && !isBlank) indented = false
+    if (/^(?: {4}|\t)/.test(raw)) {
+      indented = true
+      continue
+    }
+    if (headingLevel(raw) !== Infinity) {
+      const text = raw.replace(/^[ \t]*#{1,6}[ \t]+/, '').trim()
+      if (QA_HEADING_RE.test(text)) {
+        heading = text
+        headingLine = i
+        break
+      }
+    }
+  }
+
+  if (headingLine < 0) return { hasQaSection: false, heading: null, content: '' }
+
+  // Extract the section text: from the matched heading until the next heading
+  // of equal or lower rank (or the end of the body), bounded for the response.
+  const startLevel = headingLevel(lines[headingLine])
+  let end = lines.length
+  for (let j = headingLine + 1; j < lines.length; j++) {
+    if (lines[j].trim() === '') continue
+    if (headingLevel(lines[j]) !== Infinity && headingLevel(lines[j]) <= startLevel) {
+      end = j
+      break
+    }
+  }
+  const content = lines.slice(headingLine, end).join('\n').slice(0, MAX_QA_SECTION_CHARS)
+  return { hasQaSection: true, heading, content }
+}
+
+const QA_SPECIFIC_HEADING_RE = /\b(qa|quality\s+assurance|testing|test\s+plan|test\s+steps|verification)\b/i
+const QA_CHECKBOX_RE = /^\s*[-*+]\s*\[[ xX]\]\s+/
+
+function headingFromAtxLine(line) {
+  const match = line.match(/^[ \t]*(#{1,6})[ \t]+(.*)$/)
+  if (!match) return null
+  return { level: match[1].length, text: match[2].trim() }
+}
+
+function headingPriority(text) {
+  if (!QA_HEADING_RE.test(text)) return 0
+  return QA_SPECIFIC_HEADING_RE.test(text) ? 2 : 1
+}
+
+function stripHtmlComments(line, state) {
+  if (line.length === 0) return { text: line, inComment: state.inComment }
+  let text = ''
+  let i = 0
+  while (i < line.length) {
+    if (state.inComment) {
+      const close = line.indexOf('-->', i)
+      if (close < 0) {
+        return { text, inComment: true }
+      }
+      i = close + 3
+      state.inComment = false
+      continue
+    }
+
+    const open = line.indexOf('<!--', i)
+    if (open < 0) {
+      text += line.slice(i)
+      break
+    }
+
+    text += line.slice(i, open)
+    const close = line.indexOf('-->', open + 4)
+    if (close < 0) {
+      state.inComment = true
+      return { text, inComment: true }
+    }
+    i = close + 3
+  }
+  return { text, inComment: state.inComment }
+}
+
+function hasActionableChecklist(lines) {
+  return lines.some((line) => QA_CHECKBOX_RE.test(line))
+}
+
+function collectHeadings(lines) {
+  const headings = []
+  const commentState = { inComment: false }
+  let fence = null
+  let indented = false
+  let candidateTextLine = null
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i]
+
+    // A fenced code block swallows everything, comment markers included, until
+    // its closing delimiter, so fence state is tracked on the raw line before
+    // any comment stripping runs.
+    if (fence) {
+      const match = raw.match(/^[ \t]*([`~]+)\s*$/)
+      if (match && match[1][0] === fence[0] && match[1].length >= fence.length) {
+        fence = null
+      }
+      continue
+    }
+
+    const stripped = stripHtmlComments(raw, commentState).text
+    const trimmed = stripped.trim()
+    const isBlank = trimmed === ''
+
+    const opening = stripped.match(/^[ \t]*([`~]+)\s*\S*$/)
+    if (opening && (opening[1].startsWith('```') || opening[1].startsWith('~~~'))) {
+      fence = opening[1]
+      continue
+    }
+
+    if (indented) {
+      if (isBlank || /^(?: {4}|\t)/.test(raw)) continue
+      indented = false
+    }
+    if (/^(?: {4}|\t)/.test(raw)) {
+      indented = true
+      continue
+    }
+
+    const atx = headingFromAtxLine(stripped)
+    if (atx) {
+      headings.push({
+        text: atx.text,
+        level: atx.level,
+        index: i,
+        startLine: i,
+        priority: headingPriority(atx.text),
+      })
+      candidateTextLine = null
+      continue
+    }
+
+    if (/^[=\-]{3,}$/.test(trimmed) && candidateTextLine) {
+      const level = trimmed[0] === '=' ? 1 : 2
+      headings.push({
+        text: candidateTextLine.text,
+        level,
+        index: i,
+        startLine: candidateTextLine.index,
+        priority: headingPriority(candidateTextLine.text),
+      })
+      candidateTextLine = null
+      continue
+    }
+
+    if (isBlank) {
+      candidateTextLine = null
+      continue
+    }
+
+    candidateTextLine = { index: i, text: stripped.trim() }
+  }
+
+  return headings
+}
+
+function qaSectionInfo(body) {
+  if (typeof body !== 'string') return { hasQaSection: false, heading: null, content: '' }
+  const lines = body.split('\n')
+  const headings = collectHeadings(lines)
+  const qaHeadings = headings.filter((heading) => heading.priority > 0)
+  if (qaHeadings.length === 0) {
+    return { hasQaSection: false, heading: null, content: '' }
+  }
+
+  qaHeadings.sort((left, right) => {
+    if (left.priority !== right.priority) return right.priority - left.priority
+    return left.index - right.index
+  })
+
+  const chosen = qaHeadings[0]
+  // The section ends at the next heading of equal or higher rank, whether or
+  // not that heading is itself QA-related.
+  let end = lines.length
+  for (const candidate of headings) {
+    if (candidate.index > chosen.index && candidate.level <= chosen.level) {
+      end = candidate.index
+      break
+    }
+  }
+
+  const section = lines.slice(chosen.startLine, end)
+  const hasChecklist = hasActionableChecklist(section)
+  return {
+    hasQaSection: hasChecklist,
+    heading: hasChecklist ? chosen.text : null,
+    content: section.join('\n').slice(0, MAX_QA_SECTION_CHARS),
+  }
+}
+
 function statusLabel(status) {
   if (status === 'PASS') return '✅ PASS'
   if (status === 'FAIL') return '❌ FAIL'
@@ -194,7 +422,9 @@ async function writeState(pr, state, exec, expectedHeadSha) {
     input: nextBody,
     signal: exec.signal,
   })
-  return current
+  // Return the snapshot with the *written* body so downstream fields computed
+  // from pr.body (e.g. hasQaSection) reflect the mutation, not the pre-edit state.
+  return { ...current, body: nextBody }
 }
 
 function publicState(state) {
@@ -216,6 +446,7 @@ function publicState(state) {
 }
 
 function qaOutput(operation, pr, state, body, maxPrBodyChars) {
+  const qaSection = qaSectionInfo(pr.body ?? '')
   const result = {
     ok: true,
     operation,
@@ -227,6 +458,12 @@ function qaOutput(operation, pr, state, body, maxPrBodyChars) {
     baseRefName: pr.baseRefName,
     overall: state?.overall ?? 'NOT_STARTED',
     checks: publicState(state).checks,
+    hasQaSection: qaSection.hasQaSection,
+    qaSectionHeading: qaSection.heading,
+    // Surface the detected section text whenever a QA-ish heading was found —
+    // even when it holds no actionable checks or sits beyond the truncated
+    // body — so the coordinator can judge usability itself.
+    qaSectionContent: qaSection.content === '' ? null : qaSection.content,
   }
   if (body !== undefined) {
     result.body = body.length <= maxPrBodyChars
@@ -251,6 +488,9 @@ const OUTPUT_SCHEMA = {
     baseRefName: { type: 'string' },
     overall: { type: 'string' },
     body: { type: 'string' },
+    hasQaSection: { type: 'boolean' },
+    qaSectionHeading: { type: ['string', 'null'] },
+    qaSectionContent: { type: ['string', 'null'] },
     checks: {
       type: 'array',
       items: {
@@ -274,7 +514,7 @@ export function apply(ctx, rawConfig = {}) {
 
   ctx.effect(() => ctx.tools.register({
     name: 'qa_pr',
-    description: 'Own the machine-managed QA checklist block at the bottom of the current GitHub PR body. Inspect PR state, create/reset checklist items, update one item status with audit history, or set overall QA status. Refetches the PR before every mutation and preserves all non-QA PR body content.',
+    description: 'Own the machine-managed QA checklist block at the bottom of the current GitHub PR body. Inspect PR state (reporting whether the PR body already contains a QA/testing section via hasQaSection), create/reset checklist items, update one item status with audit history, or set overall QA status. Refetches the PR before every mutation and preserves all non-QA PR body content.',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -382,4 +622,4 @@ export function apply(ctx, rawConfig = {}) {
   }))
 }
 
-export const __test = { parseState, renderBlock, upsertBlock, newState }
+export const __test = { parseState, renderBlock, upsertBlock, newState, qaSectionInfo, qaOutput }
