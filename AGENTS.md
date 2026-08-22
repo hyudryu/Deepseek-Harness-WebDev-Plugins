@@ -19,7 +19,8 @@ DSH-Plugins/
 ├── .gitignore          ← node_modules/, .dsh/, OS/editor files
 ├── browser-control/    ← plugin 1: dsh-browser-control
 ├── qa-testing/         ← plugin 2: dsh-qa-testing
-└── personal-assistant/ ← plugin 3: dsh-personal-assistant
+├── vision-router/      ← plugin 3: dsh-vision-router
+└── personal-assistant/ ← plugin 4: dsh-personal-assistant
 ```
 
 Each plugin directory is a self-contained Harness **bundle** (installable with `dsh plugin add ./<name>`). Larger plugins (personal-assistant) additionally keep a `src/` module tree under the same conventions — `index.js` stays the thin entry point.

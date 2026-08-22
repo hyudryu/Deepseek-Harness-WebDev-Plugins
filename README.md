@@ -1,10 +1,10 @@
-# DeepSeek Harness Browser + QA Plugins
+# DeepSeek Harness Plugins
 
 > **⚠️ Disclaimer:** These are **not** official DeepSeek plugins. They are my own personal collection of plugins that I use myself for development. Use them at your own discretion.
 
 > **🤖 Also note:** All of these tools were coded with **DeepSeek-V4-Flash**, served on **2× DGX Sparks** using **DeepSeek Harness**.
 
-Three installable DeepSeek Harness bundles designed for coding-agent workflows.
+Four installable DeepSeek Harness bundles for coding-agent workflows.
 
 ## 1. `dsh-browser-control`
 
@@ -35,9 +35,9 @@ A PR-aware QA orchestration plugin. It exposes `qa_pr` plus a progressively load
 
 The QA skill instructs DeepSeek to:
 
-1. inspect the actual PR body, diff, changed files, and adjacent code;
-2. derive a concrete QA checklist;
-3. append a machine-managed `## QA Testing` block at the bottom of the PR body if it does not exist;
+1. inspect the PR to see whether it already has a QA/testing section (loose match: `## QA Testing`, `QA section`, `QA test`, `Test steps`, `Testing`, etc. all count; code blocks are ignored);
+2. only if the PR has no *usable* QA/testing section (missing, stale, or without any actionable test items), inspect the PR body, diff, changed files, and adjacent code, then derive a concrete QA checklist;
+3. if the PR already has a usable QA/testing section, reuse/translate it into the machine-managed `## QA Testing` block instead of re-deriving from scratch;
 4. update each item live as PENDING/RUNNING/PASS/FAIL/BLOCKED;
 5. on FAIL, call a foreground `subagent_fork` coding agent with the exact failure evidence;
 6. retest the failed item after the coding agent fixes it;
@@ -49,7 +49,46 @@ The PR body block stores hidden JSON state between markers so updates are determ
 
 </details>
 
-## 3. `dsh-personal-assistant`
+## 3. `dsh-vision-router`
+
+<details>
+<summary><b>Two-stage vision router</b> — click to expand</summary>
+
+A transparent model router that selects which model handles vision-capable requests versus text-only requests.
+
+How it routes every model request:
+
+1. If the request has **no image**, it is routed to the configured **text model** (or the session's selected model if none is configured).
+2. If the request **contains an image**, the router first sends the image to the configured **vision model**, which returns a written analysis; that analysis is then handed to the **text model** along with the original request. The text model never sees raw image bytes, so you can pair a strong text-only model with a separate vision model.
+
+Configuration is settings-level: add a `vision-router:` section to `$DSH_HOME/settings.yaml` (hot-reloaded, no restart):
+
+```yaml
+vision-router:
+  visionProvider: pi-ai          # provider of the vision-capable model
+  visionModel: pi-vision-2       # vision-capable model id
+  textProvider: deepseek         # optional; unset inherits the session model
+  textModel: deepseek-v4-flash   # optional; unset inherits the session model
+  visionPrompt: ''               # optional; empty = built-in default (the instruction to the vision model)
+  maxAnalysisChars: 20000        # cap on the vision analysis injected as text
+```
+
+The same fields can be set in `cordis.patch.yml` as composition defaults. Routing activates once a `visionProvider`/`visionModel` is configured; until then the router is off — text requests pass through unchanged, but a request that contains an image **fails loudly** because the router cannot analyze it without a configured vision target. Invalid router settings (for example a bad `maxAnalysisChars`) fail any request with an actionable error rather than silently disabling routing, and a configured image request whose vision stage fails is reported loudly instead of degrading. The vision analysis is delivered both at the user message and inside each image-bearing tool result, preserving the link between a tool call and its visual output.
+
+To set a custom `visionPrompt`, provide the instruction the vision model receives when it analyzes images, for example:
+
+```yaml
+vision-router:
+  visionProvider: pi-ai
+  visionModel: pi-vision-2
+  visionPrompt: Describe the image in detail, including any text, UI elements, and layout.
+```
+
+This is a router, not a tool — there is no `vision_router` tool to call. A `vision-router` skill keeps the agent aware that images are analyzed by a separate model and delivered as text.
+
+</details>
+
+## 4. `dsh-personal-assistant`
 
 <details>
 <summary><b>Global personal-assistant supervisor plugin</b> — click to expand</summary>
@@ -99,11 +138,12 @@ The package installs its runtime dependencies (`@strands-agents/sdk` and `openai
 
 ## Installation
 
-From this directory, install the bundles into the profile you use for coding (replace `tui` with your profile name):
+From this directory, install these bundles into the profile you use for coding (replace `tui` with your profile name):
 
 ```bash
 dsh plugin --profile tui add ./browser-control
 dsh plugin --profile tui add ./qa-testing
+dsh plugin --profile tui add ./vision-router
 dsh plugin --profile tui add ./personal-assistant
 ```
 
