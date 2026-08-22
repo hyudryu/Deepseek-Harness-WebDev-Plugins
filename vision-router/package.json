@@ -1,0 +1,22 @@
+{
+  "name": "dsh-vision-router",
+  "version": "0.1.0",
+  "description": "Two-stage vision router for DeepSeek Harness: route image-bearing requests through a configured vision model, then a text model",
+  "type": "module",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "core.js",
+    "cordis.patch.yml",
+    "skills/vision-router.md"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.1"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

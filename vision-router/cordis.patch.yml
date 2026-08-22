@@ -1,0 +1,11 @@
+- insert:
+    - id: vision-router
+      name: dsh-vision-router
+      config:
+        enabled: true
+        visionProvider: ''
+        visionModel: ''
+        textProvider: ''
+        textModel: ''
+        visionPrompt: ''        # optional; empty = built-in default (see skills/vision-router.md)
+        maxAnalysisChars: 20000
