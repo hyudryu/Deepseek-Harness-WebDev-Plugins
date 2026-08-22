@@ -68,7 +68,9 @@ export function createScheduleBridge({ ctx, agent, logger, setIntervalImpl, clea
     }
   }
 
-  // Best-effort: a failed durable delete still disarms the internal timer.
+  // The internal timer is always disarmed; a failed durable delete is
+  // rethrown so the caller can keep a tombstone and retry (otherwise the
+  // recurring schedule survives with no record holding its id).
   async function deleteSchedule({ scheduleId, watchId }) {
     disarmInternalTimer(watchId)
     if (typeof scheduleId !== 'string') return
@@ -76,12 +78,16 @@ export function createScheduleBridge({ ctx, agent, logger, setIntervalImpl, clea
       await execute('schedule_delete', { id: scheduleId })
     } catch (error) {
       logger?.warn?.(`personal-assistant: schedule_delete failed for ${scheduleId}: ${error instanceof Error ? error.message : String(error)}`)
+      throw error
     }
   }
 
   // Parses due-reminder framing into watch ticks. Single reminders yield
-  // { watchId }; a batch yields { watchIds }. Non-watch reminders and
-  // unparseable payloads return undefined (left for the normal path).
+  // { watchId }; a batch yields { watchIds } plus `forwarded`: the prompts of
+  // any non-watch reminders in the batch, which the caller must still route
+  // to the supervisor (a mixed batch must not swallow ordinary reminders).
+  // Batches without any watch payload and unparseable payloads return
+  // undefined (left for the normal path).
   function onReminderText(text) {
     if (typeof text !== 'string') return undefined
     if (text.startsWith(BATCH_HEADER)) {
@@ -89,10 +95,14 @@ export function createScheduleBridge({ ctx, agent, logger, setIntervalImpl, clea
       if (!line) return undefined
       try {
         const reminders = JSON.parse(line.slice('reminders_json: '.length))
-        const watchIds = reminders
-          .map(reminder => parseWatchPayload(reminder.reminder_prompt)?.watchId)
-          .filter(watchId => watchId !== undefined)
-        return watchIds.length > 0 ? { watchIds } : undefined
+        const watchIds = []
+        const forwarded = []
+        for (const reminder of reminders) {
+          const watchId = parseWatchPayload(reminder.reminder_prompt)?.watchId
+          if (watchId === undefined) forwarded.push(reminder.reminder_prompt)
+          else watchIds.push(watchId)
+        }
+        return watchIds.length > 0 ? { watchIds, forwarded } : undefined
       } catch {
         return undefined
       }

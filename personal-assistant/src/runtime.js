@@ -31,11 +31,12 @@ function messageText(message) {
 }
 
 export class PersonalAssistantRuntime {
-  constructor(ctx, config, { store, idleDebounceMs = 500 } = {}) {
+  constructor(ctx, config, { store, idleDebounceMs = 500, eventRetryDelayMs = 5_000 } = {}) {
     this.ctx = ctx
     this.config = config
     this.logger = ctx.logger
     this.idleDebounceMs = idleDebounceMs
+    this.eventRetryDelayMs = eventRetryDelayMs
     this.idleTimers = new Map()
     this.eventDispatching = false
     this.store = store ?? createJsonFileStore({ logger: this.logger })
@@ -52,6 +53,7 @@ export class PersonalAssistantRuntime {
     ctx.effect(() => ctx.on('session/event', (session, event) => this.sessionIndex.noteSessionEvent(session, event)))
     ctx.effect(() => () => {
       for (const timer of this.idleTimers.values()) clearTimeout(timer)
+      clearTimeout(this.eventRetryTimer)
       return this.store.flush()
     })
 
@@ -105,7 +107,7 @@ export class PersonalAssistantRuntime {
     this.scheduleBridge.onTick = watchId => this.tickWatch(watchId)
     ctx.effect(() => () => this.scheduleBridge.dispose())
 
-    const recovery = this.watchManager.recover()
+    const recovery = await this.watchManager.recover()
     for (const watch of recovery.needsTimer) this.scheduleBridge.armInternalTimer(watch.watchId, watch.everySeconds)
     if (recovery.scheduled.length > 0 || recovery.needsTimer.length > 0) {
       this.logger?.info?.(`personal-assistant: recovered ${recovery.scheduled.length} scheduled and ${recovery.needsTimer.length} timer-backed watches`)
@@ -141,6 +143,10 @@ export class PersonalAssistantRuntime {
       if (reminder) {
         const watchIds = reminder.watchIds ?? [reminder.watchId]
         for (const watchId of watchIds) this.tickWatch(watchId)
+        // A mixed batch also carries ordinary reminders; forward those to the
+        // supervisor instead of dropping them with the watch payloads.
+        const forwarded = (reminder.forwarded ?? []).filter(prompt => typeof prompt === 'string' && prompt.trim() !== '')
+        if (forwarded.length > 0) this.actor?.submitUserAnswer(forwarded.join('\n\n'))
         return { kind: 'reject' }
       }
     }
@@ -196,13 +202,18 @@ export class PersonalAssistantRuntime {
   async drainEventQueue() {
     if (this.eventDispatching || !this.actor) return
     this.eventDispatching = true
+    let failed = false
     try {
       let event
       while ((event = this.eventQueue.next()) !== undefined) {
         const outcome = await this.actor.submitEvent(event)
         if (!outcome.ok) {
+          // Transient failure: requeue (priority intact) and stop this drain;
+          // a retry timer re-attempts so the notification is never dropped.
           this.eventQueue.release(event)
-          continue
+          this.eventQueue.push(event)
+          failed = true
+          break
         }
         this.eventQueue.ack(event)
         this.store.state.dedupeKeys = [...this.eventQueue.seenKeys]
@@ -210,7 +221,18 @@ export class PersonalAssistantRuntime {
       }
     } finally {
       this.eventDispatching = false
-      if (this.eventQueue.size > 0) this.drainEventQueue()
+      if (failed) this.scheduleEventRetry()
+      else if (this.eventQueue.size > 0) this.drainEventQueue()
     }
+  }
+
+  scheduleEventRetry() {
+    if (this.eventRetryTimer !== undefined || this.eventQueue.size === 0) return
+    const timer = setTimeout(() => {
+      this.eventRetryTimer = undefined
+      this.drainEventQueue()
+    }, this.eventRetryDelayMs)
+    timer.unref?.()
+    this.eventRetryTimer = timer
   }
 }

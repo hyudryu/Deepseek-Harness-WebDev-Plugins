@@ -8,9 +8,13 @@ async function drained(runtime) {
   while (runtime.eventDispatching || runtime.eventQueue.size > 0) await new Promise(resolve => setTimeout(resolve, 1))
 }
 
-function setup(submitEvent) {
+async function waitFor(condition) {
+  while (!condition()) await new Promise(resolve => setTimeout(resolve, 1))
+}
+
+function setup(submitEvent, options = {}) {
   const store = createMemoryStore()
-  const runtime = new PersonalAssistantRuntime({ logger: {} }, {}, { store })
+  const runtime = new PersonalAssistantRuntime({ logger: {} }, {}, { store, ...options })
   runtime.actor = { submitEvent }
   return { runtime, store }
 }
@@ -33,21 +37,25 @@ test('queued events are dispatched by priority after the active presentation', a
   assert.deepEqual(runtime.eventQueue.seenKeys, ['active-low', 'queued-high', 'queued-low'])
 })
 
-test('failed delivery does not persist dedupe and a later occurrence retries', async () => {
+test('failed delivery is requeued and retried until it succeeds', async () => {
   let succeed = false
   let calls = 0
   const { runtime, store } = setup(async () => {
     calls += 1
     return { ok: succeed }
-  })
-  const event = createEvent({ kind: 'FAILED', dedupeKey: 'retry-me' })
-  runtime.notifyEvent(event)
-  await drained(runtime)
+  }, { eventRetryDelayMs: 5 })
+  runtime.notifyEvent(createEvent({ kind: 'FAILED', dedupeKey: 'retry-me' }))
+  // first attempt failed: the event stays queued and dedupe is not persisted
+  await waitFor(() => calls === 1 && runtime.eventQueue.size === 1)
   assert.deepEqual(store.state.dedupeKeys, [])
 
-  succeed = true
+  // a duplicate producer coalesces with the queued retry instead of stacking
   runtime.notifyEvent(createEvent({ kind: 'FAILED', dedupeKey: 'retry-me' }))
+  assert.equal(runtime.eventQueue.size, 1)
+
+  // the retry timer redelivers once the failure clears — no new event needed
+  succeed = true
   await drained(runtime)
-  assert.equal(calls, 2)
+  assert.equal(runtime.eventQueue.size, 0)
   assert.deepEqual(store.state.dedupeKeys, ['retry-me'])
 })

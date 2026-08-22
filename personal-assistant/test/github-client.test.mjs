@@ -84,3 +84,14 @@ test('createGithubClient validates the poll timeout', () => {
   assert.throws(() => createGithubClient({ pollTimeoutMs: 0 }), /pollTimeoutMs/)
   assert.throws(() => createGithubClient({ pollTimeoutMs: Number.NaN }), /pollTimeoutMs/)
 })
+
+test('the query document stays within the GitHub schema (no PullRequestCommit.createdAt)', async () => {
+  // PullRequestCommit exposes only commit/id/pullRequest/resourcePath/url;
+  // requesting createdAt fails schema validation for every poll.
+  const { calls, spawnImpl } = fakeGh(respondWith(() => page([], false, null)))
+  const client = createGithubClient({ spawnImpl })
+  await client.getPrReviewTimeline({ repo: 'acme/api', prNumber: 42 })
+  const query = calls[0].find(arg => arg.startsWith('query=')).slice('query='.length)
+  const commitFragment = query.match(/on PullRequestCommit \{([^}]*)\{[^}]*\}[^}]*\}/)?.[0] ?? ''
+  assert.ok(!commitFragment.includes('createdAt'), commitFragment)
+})

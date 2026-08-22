@@ -109,7 +109,15 @@ export function createWatchManager({ store, reviewState, emitEvent, deleteSchedu
     watch.status = 'terminal'
     watch.terminalReason = 'cancelled'
     watch.terminalAt = clock()
-    await deleteSchedule({ scheduleId: watch.scheduleId, watchId })
+    try {
+      await deleteSchedule({ scheduleId: watch.scheduleId, watchId })
+    } catch (error) {
+      // Keep the tombstone: it holds the schedule id, and recover() retries
+      // the durable delete on the next start.
+      store.save()
+      logger?.warn?.(`personal-assistant: watch ${watchId} cancelled but its schedule could not be deleted yet: ${error instanceof Error ? error.message : String(error)}`)
+      return { watchId, cancelled: true, scheduleDeletePending: true }
+    }
     store.state.watches = store.state.watches.filter(candidate => candidate.watchId !== watchId)
     store.save()
     return { watchId, cancelled: true }
@@ -119,10 +127,21 @@ export function createWatchManager({ store, reviewState, emitEvent, deleteSchedu
     return store.state.watches.map(watch => ({ ...watch }))
   }
 
-  // Boot recovery: watches with a scheduleId are durable in dsh-schedule and
-  // assumed live; timer-fallback watches must be re-armed by the caller
-  // (the bridge owns timers).
-  function recover() {
+  // Boot recovery: terminal watches still holding a scheduleId are deletion
+  // tombstones — retry the durable delete and forget them once it succeeds.
+  // Active watches with a scheduleId are durable in dsh-schedule and assumed
+  // live; timer-fallback watches must be re-armed by the caller (the bridge
+  // owns timers).
+  async function recover() {
+    const tombstones = store.state.watches.filter(watch => watch.status === 'terminal' && typeof watch.scheduleId === 'string')
+    for (const tombstone of tombstones) {
+      try {
+        await deleteSchedule({ scheduleId: tombstone.scheduleId, watchId: tombstone.watchId })
+        store.state.watches = store.state.watches.filter(candidate => candidate.watchId !== tombstone.watchId)
+      } catch {
+        // Still unreachable; the tombstone stays for the next restart.
+      }
+    }
     const durable = store.state.watches.filter(watch => watch.status === undefined || watch.status === 'active')
     for (const watch of durable) {
       watch.status = 'active'

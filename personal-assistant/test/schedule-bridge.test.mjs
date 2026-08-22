@@ -92,7 +92,7 @@ test('tool error results (isError) throw into the fallback path', async () => {
   assert.deepEqual(result, { fallback: true })
 })
 
-test('deleteSchedule is best-effort and always disarms the timer', async () => {
+test('deleteSchedule always disarms the timer and rethrows durable-delete failures', async () => {
   const calls = []
   const { bridge, timers, warnings } = setup({
     execute: async input => {
@@ -103,7 +103,7 @@ test('deleteSchedule is best-effort and always disarms the timer', async () => {
   })
   bridge.armInternalTimer('w-1', 300)
   assert.equal(timers.armed.size, 1)
-  await bridge.deleteSchedule({ scheduleId: 'sched-1', watchId: 'w-1' })
+  await assert.rejects(() => bridge.deleteSchedule({ scheduleId: 'sched-1', watchId: 'w-1' }), /session gone/)
   assert.equal(timers.armed.size, 0)
   assert.equal(calls.at(-1).name, 'schedule_delete')
   assert.deepEqual(calls.at(-1).arguments, { id: 'sched-1' })
@@ -119,7 +119,7 @@ test('single reminder framing parses to the embedded watch id', () => {
   assert.deepEqual(bridge.onReminderText(text), { watchId: 'w-1' })
 })
 
-test('batch reminder framing parses every embedded watch', () => {
+test('batch reminder framing parses every embedded watch and forwards ordinary reminders', () => {
   const { bridge } = setup()
   const other = createWatch({ watchId: 'w-2', repo: 'acme/web', prNumber: 7, everySeconds: 600 })
   const text = batchFraming([
@@ -127,7 +127,7 @@ test('batch reminder framing parses every embedded watch', () => {
     { schedule_id: 'sched-2', occurrence_at: '2026-08-21T00:00:00.000Z', reminder_prompt: encodeWatchPayload(other) },
     { schedule_id: 'sched-3', occurrence_at: '2026-08-21T00:00:00.000Z', reminder_prompt: 'stand up and stretch' },
   ])
-  assert.deepEqual(bridge.onReminderText(text), { watchIds: ['w-1', 'w-2'] })
+  assert.deepEqual(bridge.onReminderText(text), { watchIds: ['w-1', 'w-2'], forwarded: ['stand up and stretch'] })
 })
 
 test('non-watch reminders and plain text are left alone', () => {

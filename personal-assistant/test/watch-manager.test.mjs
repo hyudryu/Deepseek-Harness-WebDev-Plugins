@@ -230,7 +230,7 @@ test('canceling during an in-flight poll suppresses its late result', async () =
   assert.equal(events.length, 0)
 })
 
-test('recover() sorts durable watches into scheduled vs needs-timer', () => {
+test('recover() sorts durable watches into scheduled vs needs-timer', async () => {
   const store = createMemoryStore()
   store.state.watches.push(
     { version: 1, watchId: 'w-sched', kind: 'github_codex_review', repo: 'acme/api', prNumber: 1, everySeconds: 300, exitCondition: 'codex_thumbs_up', scheduleId: 'sched-1', status: 'active' },
@@ -238,9 +238,40 @@ test('recover() sorts durable watches into scheduled vs needs-timer', () => {
     { version: 1, watchId: 'w-done', kind: 'github_codex_review', repo: 'acme/api', prNumber: 3, everySeconds: 300, exitCondition: 'codex_thumbs_up', status: 'terminal' },
   )
   const manager = createWatchManager({ store, reviewState: async () => reviewStateResult(), emitEvent: () => {}, deleteSchedule: async () => {} })
-  const summary = manager.recover()
+  const summary = await manager.recover()
   assert.deepEqual(summary.scheduled, ['w-sched'])
   assert.deepEqual(summary.needsTimer.map(watch => watch.watchId), ['w-timer'])
   // terminal watches are not re-armed; a terminal tick is a no-op
   assert.equal(manager.listWatches().length, 3)
+})
+
+test('a failed schedule delete keeps a tombstone that recover() retries', async () => {
+  const store = createMemoryStore()
+  const deletions = []
+  let failDelete = true
+  const manager = createWatchManager({
+    store,
+    reviewState: async () => reviewStateResult(),
+    emitEvent: () => {},
+    deleteSchedule: async args => {
+      if (failDelete) throw new Error('schedule service down')
+      deletions.push(args)
+    },
+  })
+  const { watch } = manager.createWatch(WATCH)
+  manager.attachSchedule(watch.watchId, 'sched-7')
+
+  const result = await manager.cancelWatch(watch.watchId)
+  assert.equal(result.cancelled, true)
+  assert.equal(result.scheduleDeletePending, true)
+  // the record survives as a terminal tombstone holding the schedule id
+  assert.equal(store.state.watches.length, 1)
+  assert.equal(store.state.watches[0].status, 'terminal')
+  assert.equal(store.state.watches[0].scheduleId, 'sched-7')
+
+  // next boot: recover retries the delete; success forgets the tombstone
+  failDelete = false
+  await manager.recover()
+  assert.deepEqual(deletions, [{ scheduleId: 'sched-7', watchId: watch.watchId }])
+  assert.equal(store.state.watches.length, 0)
 })

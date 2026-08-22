@@ -22,6 +22,17 @@ export function emptyState() {
   return { version: STATE_VERSION, sessions: {}, dedupeKeys: [], watches: [] }
 }
 
+// A syntactically valid JSON file can still be structurally corrupt (wrong
+// version, containers of the wrong shape); accepting it crashes unrelated
+// code later. Only known-shaped states are accepted.
+function isValidState(parsed) {
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return false
+  if (parsed.version !== STATE_VERSION) return false
+  if (parsed.sessions === null || typeof parsed.sessions !== 'object' || Array.isArray(parsed.sessions)) return false
+  if (!Array.isArray(parsed.dedupeKeys) || !Array.isArray(parsed.watches)) return false
+  return true
+}
+
 function profileName(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === '--profile' && argv[index + 1]) return argv[index + 1]
@@ -51,7 +62,9 @@ export function createMemoryStore(initial) {
 export function createJsonFileStore({ filePath = defaultStatePath(), debounceMs = 500, logger } = {}) {
   let state = emptyState()
   try {
-    state = { ...emptyState(), ...JSON.parse(readFileSync(filePath, 'utf8')) }
+    const parsed = JSON.parse(readFileSync(filePath, 'utf8'))
+    if (isValidState(parsed)) state = { ...emptyState(), ...parsed }
+    else logger?.warn?.(`personal-assistant: state file ${filePath} has an unexpected shape (version ${String(parsed?.version)}); starting with empty state`)
   } catch {
     // Missing or corrupt state file: start fresh rather than fail startup.
   }

@@ -25,7 +25,7 @@ query($owner: String!, $name: String!, $number: Int!, $reactionCursor: String = 
           __typename
           ... on IssueComment { id createdAt author { login } body }
           ... on PullRequestReview { id createdAt author { login } body state }
-          ... on PullRequestCommit { id createdAt commit { oid committedDate } }
+          ... on PullRequestCommit { id commit { oid committedDate } }
           ... on MergedEvent { id createdAt actor { login } }
           ... on ClosedEvent { id createdAt actor { login } }
           ... on HeadRefForcePushedEvent { id createdAt actor { login } }

@@ -4,12 +4,16 @@
 // Precedence (spec §12.1):
 //   1. A Codex THUMBS_UP on the main post ends the review watch immediately:
 //      codexThumbsUpOnMainPost + reviewComplete, fingerprint thumbsup:<id>.
-//   2. Otherwise the chronologically latest timeline item (sorted by
-//      createdAt, never array order) decides latestActivity: Codex
-//      comment/review → codex_comment (a Codex PULL_REQUEST_REVIEW counts as
-//      codex_comment — the watch exists to catch Codex output); commit or
-//      force-push → commit/push (latest state NOT yet reviewed); anyone
-//      else's comment → other_comment; non-Codex review → review.
+//   2. Otherwise the chronologically latest timeline item decides
+//      latestActivity. Dated items sort by createdAt; PullRequestCommit
+//      exposes no createdAt in the GitHub schema, so commits take their
+//      position from the chronological connection order (never from
+//      commit.committedDate — a cherry-picked old commit's push is still
+//      the newest PR activity). Codex comment/review → codex_comment (a
+//      Codex PULL_REQUEST_REVIEW counts as codex_comment — the watch exists
+//      to catch Codex output); commit or force-push → commit/push (latest
+//      state NOT yet reviewed); anyone else's comment → other_comment;
+//      non-Codex review → review.
 //   3. reviewComplete is also true for a merged PR (watch auto-stop), but
 //      codexThumbsUpOnMainPost stays reaction-driven only.
 // MERGED_EVENT/CLOSED_EVENT nodes never become latestActivity — the PR state
@@ -33,7 +37,9 @@ function normalizeNode(node) {
     case 'PullRequestReview':
       return { kind: 'review', id: node.id, createdAt: node.createdAt, actor: node.author?.login, body: node.body }
     case 'PullRequestCommit':
-      return { kind: 'commit', id: node.id, createdAt: node.createdAt ?? node.commit?.committedDate, oid: node.commit?.oid }
+      // No createdAt exists on this type; ordering is filled in below from
+      // the connection order. committedDate is deliberately NOT a fallback.
+      return { kind: 'commit', id: node.id, createdAt: undefined, oid: node.commit?.oid }
     case 'HeadRefForcePushedEvent':
       return { kind: 'push', id: node.id, createdAt: node.createdAt, actor: node.actor?.login }
     case 'MergedEvent':
@@ -55,13 +61,24 @@ export function computePrReviewState({ timeline, codexActorLogins, maxCommentCha
 
   const items = (timeline.timelineItems?.nodes ?? [])
     .map(normalizeNode)
-    .filter(item => item !== undefined && item.kind !== 'lifecycle' && typeof item.createdAt === 'string')
+    .filter(item => item !== undefined && item.kind !== 'lifecycle')
     .map((item, index) => ({ ...item, index }))
-    .sort((a, b) => {
-      const order = a.createdAt.localeCompare(b.createdAt)
-      if (order !== 0) return order
-      return a.index - b.index
-    })
+
+  // Undated items (commits) inherit the nearest dated neighbor's timestamp —
+  // forward pass, so a filled neighbor propagates — and array position (the
+  // connection's chronological order) breaks the tie.
+  for (let index = 0; index < items.length; index += 1) {
+    if (typeof items[index].createdAt === 'string') continue
+    const after = items.slice(index + 1).find(item => typeof item.createdAt === 'string')
+    const before = index > 0 ? items[index - 1].createdAt : undefined
+    items[index].createdAt = after?.createdAt ?? (typeof before === 'string' ? before : '')
+  }
+
+  items.sort((a, b) => {
+    const order = a.createdAt.localeCompare(b.createdAt)
+    if (order !== 0) return order
+    return a.index - b.index
+  })
 
   const latest = items[items.length - 1]
   let latestActivity = { kind: 'none', actor: undefined, createdAt: undefined, text: undefined }
