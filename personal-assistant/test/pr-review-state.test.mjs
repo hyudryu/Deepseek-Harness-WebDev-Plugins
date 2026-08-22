@@ -140,6 +140,21 @@ test('unsorted timeline input is ordered by createdAt, not array order', () => {
   assert.equal(state.fingerprint, 'comment:C2')
 })
 
+test('a cherry-picked old commit is ordered by its push time, not committedDate', () => {
+  const state = computePrReviewState({
+    timeline: timeline({
+      items: [
+        // Old commit metadata, but the push is the newest PR activity.
+        { __typename: 'PullRequestCommit', id: 'K9', createdAt: '2026-08-20T13:00:00Z', commit: { oid: 'old123', committedDate: '2026-08-01T09:00:00Z' } },
+        comment('C1', 'codex', '2026-08-20T12:00:00Z', 'reviewed'),
+      ],
+    }),
+    codexActorLogins: CODEX,
+  })
+  assert.equal(state.latestActivity.kind, 'commit')
+  assert.equal(state.fingerprint, 'commit:old123')
+})
+
 test('non-Codex review is kind review; Codex review counts as codex_comment', () => {
   const human = computePrReviewState({
     timeline: timeline({ items: [review('R7', 'bob', '2026-08-20T10:00:00Z', 'Looks good')] }),

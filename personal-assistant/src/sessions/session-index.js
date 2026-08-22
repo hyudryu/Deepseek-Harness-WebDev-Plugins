@@ -13,7 +13,7 @@ function messageText(message) {
 // Live index of every Harness session except the assistant's own control
 // session. Record logic is ctx-free: the runtime wires ctx events to the
 // note* methods, tests drive them directly. Persisted fields (customName,
-// repo, branch, prNumber) round-trip through the injected store.
+// repo, branch, task, and prNumber round-trip through the injected store.
 export class SessionIndex {
   constructor({ excludeSessionId, now, store } = {}) {
     this.excludeSessionId = excludeSessionId
@@ -37,9 +37,9 @@ export class SessionIndex {
       prNumber: persisted.prNumber,
       status: agent.status ?? 'idle',
       lastActivityAt: this.now(),
-      currentTask: undefined,
+      currentTask: persisted.currentTask,
       terminalIds: [],
-      task: undefined,
+      task: persisted.task,
       lastAssistantText: undefined,
       lastAssistantSeq: undefined,
       recentToolResults: [],
@@ -147,6 +147,8 @@ export class SessionIndex {
       prNumber: record.prNumber,
       repo: record.repo,
       branch: record.branch,
+      task: record.task,
+      currentTask: record.currentTask,
     }
     this.store.save()
   }

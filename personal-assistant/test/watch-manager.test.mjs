@@ -194,6 +194,42 @@ test('cancelWatch deletes the schedule and removes the record', async () => {
   await assert.rejects(() => manager.cancelWatch('watch-gone'), /watch_list/)
 })
 
+test('a pr_merged watch ignores a Codex thumbs-up', async () => {
+  const { manager, events, store } = setup(reviewStateResult({
+    codexThumbsUpOnMainPost: true,
+    reviewComplete: true,
+    fingerprint: 'thumbsup:RE1',
+  }))
+  const { watch } = manager.createWatch({ ...WATCH, exitCondition: 'pr_merged' })
+  assert.equal((await manager.handleTick(watch.watchId)).acted, false)
+  assert.equal(events.length, 0)
+  assert.equal(store.state.watches[0].status, 'active')
+})
+
+test('canceling during an in-flight poll suppresses its late result', async () => {
+  const store = createMemoryStore()
+  const events = []
+  let release
+  const manager = createWatchManager({
+    store,
+    reviewState: async () => {
+      await new Promise(resolve => { release = resolve })
+      return reviewStateResult({
+        latestActivity: { kind: 'codex_comment', actor: 'codex', text: 'Finding' },
+        fingerprint: 'codex-comment:C1',
+      })
+    },
+    emitEvent: event => events.push(event),
+    deleteSchedule: async () => {},
+  })
+  const { watch } = manager.createWatch(WATCH)
+  const pending = manager.handleTick(watch.watchId)
+  await manager.cancelWatch(watch.watchId)
+  release()
+  assert.deepEqual(await pending, { acted: false })
+  assert.equal(events.length, 0)
+})
+
 test('recover() sorts durable watches into scheduled vs needs-timer', () => {
   const store = createMemoryStore()
   store.state.watches.push(

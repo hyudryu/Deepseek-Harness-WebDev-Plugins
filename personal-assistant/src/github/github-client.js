@@ -3,14 +3,15 @@ import { spawn } from 'node:child_process'
 // GraphQL document for one PR review-state poll. Kept as a single template
 // constant; variables go through -F/-f per gh conventions.
 const PR_REVIEW_TIMELINE_QUERY = `
-query($owner: String!, $name: String!, $number: Int!) {
+query($owner: String!, $name: String!, $number: Int!, $reactionCursor: String = null) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       state
       merged
       closed
-      reactions(first: 100, content: THUMBS_UP) {
+      reactions(first: 100, after: $reactionCursor, content: THUMBS_UP) {
         nodes { id createdAt user { login } }
+        pageInfo { hasNextPage endCursor }
       }
       timelineItems(last: 30, itemTypes: [
         ISSUE_COMMENT,
@@ -24,7 +25,7 @@ query($owner: String!, $name: String!, $number: Int!) {
           __typename
           ... on IssueComment { id createdAt author { login } body }
           ... on PullRequestReview { id createdAt author { login } body state }
-          ... on PullRequestCommit { id commit { oid committedDate } }
+          ... on PullRequestCommit { id createdAt commit { oid committedDate } }
           ... on MergedEvent { id createdAt actor { login } }
           ... on ClosedEvent { id createdAt actor { login } }
           ... on HeadRefForcePushedEvent { id createdAt actor { login } }
@@ -34,6 +35,53 @@ query($owner: String!, $name: String!, $number: Int!) {
   }
 }
 `
+
+async function getPullRequest(clientArgs, { spawnImpl, signal } = {}) {
+  let cursor
+  const collectedReactions = []
+  let pullRequest
+
+  while (true) {
+    const args = [
+      'api', 'graphql',
+      '-F', `owner=${clientArgs.owner}`,
+      '-F', `name=${clientArgs.name}`,
+      '-F', `number=${clientArgs.number}`,
+      '-f', `query=${PR_REVIEW_TIMELINE_QUERY}`,
+    ]
+    if (cursor !== undefined) args.push('-F', `reactionCursor=${cursor}`)
+    const stdout = await runGh(args, { signal, spawnImpl })
+
+    let parsed
+    try {
+      parsed = JSON.parse(stdout)
+    } catch {
+      throw new Error('gh api graphql returned invalid JSON')
+    }
+    if (Array.isArray(parsed.errors) && parsed.errors.length > 0) {
+      throw new Error(`GitHub GraphQL error: ${parsed.errors.map(error => error.message ?? String(error)).join('; ')}`)
+    }
+
+    const latest = parsed.data?.repository?.pullRequest
+    if (!latest) return null
+    if (pullRequest === undefined) pullRequest = latest
+
+    const page = latest.reactions ?? { nodes: [] }
+    if (Array.isArray(page.nodes)) {
+      for (const reaction of page.nodes) collectedReactions.push(reaction)
+    }
+
+    if (!page.pageInfo?.hasNextPage) break
+    cursor = page.pageInfo.endCursor
+    if (cursor === undefined) break
+  }
+
+  pullRequest.reactions = {
+    ...(pullRequest.reactions ?? {}),
+    nodes: collectedReactions,
+  }
+  return pullRequest
+}
 
 // Abortable, output-capped gh invocation with actionable errors (same shape
 // as qa-testing's runGh; spawn is injectable for tests).
@@ -85,23 +133,7 @@ export function createGithubClient({ spawnImpl, pollTimeoutMs = 30_000 } = {}) {
     const [owner, name] = repo.split('/')
     const timeoutSignal = AbortSignal.timeout(pollTimeoutMs)
     const commandSignal = signal === undefined ? timeoutSignal : AbortSignal.any([signal, timeoutSignal])
-    const stdout = await runGh([
-      'api', 'graphql',
-      '-F', `owner=${owner}`,
-      '-F', `name=${name}`,
-      '-F', `number=${prNumber}`,
-      '-f', `query=${PR_REVIEW_TIMELINE_QUERY}`,
-    ], { signal: commandSignal, spawnImpl })
-    let parsed
-    try {
-      parsed = JSON.parse(stdout)
-    } catch {
-      throw new Error('gh api graphql returned invalid JSON')
-    }
-    if (Array.isArray(parsed.errors) && parsed.errors.length > 0) {
-      throw new Error(`GitHub GraphQL error: ${parsed.errors.map(error => error.message ?? String(error)).join('; ')}`)
-    }
-    const pullRequest = parsed.data?.repository?.pullRequest
+    const pullRequest = await getPullRequest({ owner, name, number: prNumber }, { signal: commandSignal, spawnImpl })
     if (!pullRequest) throw new Error(`pull request ${repo}#${prNumber} not found (check repo and number, and gh auth status)`)
     return pullRequest
   }

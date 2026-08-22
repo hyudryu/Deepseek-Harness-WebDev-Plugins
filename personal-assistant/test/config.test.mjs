@@ -36,10 +36,11 @@ test('personality preset custom requires customPrompt', () => {
 
 test('normalizeConfig validates booleans and login arrays', () => {
   assert.throws(() => normalizeConfig({ enabled: 'yes' }), /enabled/)
-  assert.throws(() => normalizeConfig({ notifications: { ciPassed: 1 } }), /ciPassed/)
+  assert.throws(() => normalizeConfig({ notifications: { completed: 'yes' } }), /completed/)
   assert.throws(() => normalizeConfig({ github: { codexActorLogins: [''] } }), /codexActorLogins/)
-  assert.throws(() => normalizeConfig({ permissions: { autonomyLevel: 1 } }), /only Level 2/)
-  assert.throws(() => normalizeConfig({ permissions: { autonomyLevel: 3 } }), /only Level 2/)
+  assert.throws(() => normalizeConfig({ permissions: { autonomyLevel: 0 } }), /supports only 1 and 2/)
+  assert.equal(normalizeConfig({ permissions: { autonomyLevel: 1 } }).permissions.autonomyLevel, 1)
+  assert.equal(normalizeConfig({ permissions: { autonomyLevel: 2 } }).permissions.autonomyLevel, 2)
 })
 
 test('normalizeConfig rejects unknown fields at every level', () => {

@@ -76,7 +76,11 @@ export class SupervisorActor {
           ? buildAnswerPrompt(item.text, item.question, item.ambiguousQuestions)
           : buildEventPrompt(item.event)
         const response = await this.invoke(prompt)
-        await this.present(response, item)
+        const presented = await this.present(response, item)
+        if (presented === false) throw new Error('notification was not presented to the control session')
+        if (typeof presented === 'object' && presented !== null && 'ok' in presented && presented.ok === false) {
+          throw new Error(presented.reason ?? 'notification was refused by control session')
+        }
         if (item.type === 'event' && QUESTION_KINDS.includes(item.event.kind)) {
           this.state.pendingQuestions.push({
             eventId: item.event.id,

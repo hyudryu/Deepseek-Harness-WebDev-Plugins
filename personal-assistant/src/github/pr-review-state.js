@@ -33,7 +33,7 @@ function normalizeNode(node) {
     case 'PullRequestReview':
       return { kind: 'review', id: node.id, createdAt: node.createdAt, actor: node.author?.login, body: node.body }
     case 'PullRequestCommit':
-      return { kind: 'commit', id: node.id, createdAt: node.commit?.committedDate, oid: node.commit?.oid }
+      return { kind: 'commit', id: node.id, createdAt: node.createdAt ?? node.commit?.committedDate, oid: node.commit?.oid }
     case 'HeadRefForcePushedEvent':
       return { kind: 'push', id: node.id, createdAt: node.createdAt, actor: node.actor?.login }
     case 'MergedEvent':
@@ -56,7 +56,12 @@ export function computePrReviewState({ timeline, codexActorLogins, maxCommentCha
   const items = (timeline.timelineItems?.nodes ?? [])
     .map(normalizeNode)
     .filter(item => item !== undefined && item.kind !== 'lifecycle' && typeof item.createdAt === 'string')
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .map((item, index) => ({ ...item, index }))
+    .sort((a, b) => {
+      const order = a.createdAt.localeCompare(b.createdAt)
+      if (order !== 0) return order
+      return a.index - b.index
+    })
 
   const latest = items[items.length - 1]
   let latestActivity = { kind: 'none', actor: undefined, createdAt: undefined, text: undefined }

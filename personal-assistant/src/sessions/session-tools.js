@@ -59,10 +59,13 @@ export function createSessionToolSpecs({ sessionIndex, agents }) {
         additionalProperties: false,
         properties: {
           status: { type: 'string', enum: ['all', 'running', 'idle'], description: 'Filter by status; "all" (default) returns every session.' },
-          recent_seconds: { type: 'integer', description: 'Only sessions active within the last N seconds.' },
+          recent_seconds: { type: 'integer', minimum: 1, description: 'Only sessions active within the last N seconds.' },
         },
       },
       callback: async (args = {}) => {
+        if (args.recent_seconds !== undefined && (!Number.isInteger(args.recent_seconds) || args.recent_seconds <= 0)) {
+          throw new Error('sessions_list: recent_seconds must be a positive integer')
+        }
         const sessions = sessionIndex.list({ status: args.status ?? 'all', recentSeconds: args.recent_seconds })
           .slice(0, MAX_LISTED_SESSIONS)
           .map(publicRecord)

@@ -15,16 +15,22 @@ const RULES = [
   'Use TUI tools only for genuinely interactive menus that messaging cannot reach.',
   'Do not announce watch checks that found nothing new; only speak when a condition is met.',
   'A Codex thumbs-up reaction ends review watches for that PR.',
-  'You operate at Level-2 autonomy: act without asking when the session association is unambiguous; ask when ambiguous.',
   'Destructive operations require explicit user approval before you perform them.',
 ]
 
+const AUTONOMY_RULES = {
+  1: 'You operate with conservative autonomy (Level-1): ask before taking action unless the action is explicitly safe and user-directed.',
+  2: 'You operate at Level-2 autonomy: act without asking when the session association is unambiguous; ask when ambiguous.',
+}
+
 export function buildSystemPrompt(config) {
+  const level = config?.permissions?.autonomyLevel
   const lines = [
     'You are a personal assistant supervising DeepSeek Harness coding sessions.',
     '',
     'Rules:',
     ...RULES.map(rule => `- ${rule}`),
+    `- ${AUTONOMY_RULES[level] ?? AUTONOMY_RULES[2]}`,
     '',
   ]
   if (config.personality.preset === 'custom') lines.push(config.personality.customPrompt)

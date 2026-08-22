@@ -48,9 +48,15 @@ export function createWatchManager({ store, reviewState, emitEvent, deleteSchedu
     await deleteSchedule({ scheduleId: watch.scheduleId, watchId: watch.watchId })
   }
 
+  function isActive(watchId) {
+    const candidate = findWatch(watchId)
+    return candidate !== undefined && candidate.status === 'active'
+  }
+
   async function pollWatch(watchId) {
     const watch = findWatch(watchId)
     if (!watch || watch.status !== 'active') return { acted: false }
+
     let state
     try {
       state = await reviewState({ repo: watch.repo, prNumber: watch.prNumber })
@@ -60,11 +66,13 @@ export function createWatchManager({ store, reviewState, emitEvent, deleteSchedu
       return { acted: false }
     }
 
-    if (state.codexThumbsUpOnMainPost && watch.exitCondition !== 'manual') {
+    if (!isActive(watchId)) return { acted: false }
+
+    if (state.codexThumbsUpOnMainPost && watch.exitCondition === 'codex_thumbs_up') {
       await terminate(watch, 'codex_thumbs_up', state.fingerprint)
       return { acted: true }
     }
-    if ((state.prState === 'merged' || state.prState === 'closed') && watch.exitCondition !== 'manual') {
+    if (state.prState === 'merged' && state.reviewComplete && watch.exitCondition !== 'manual') {
       await terminate(watch, `pr_${state.prState}`, state.fingerprint)
       return { acted: true }
     }
@@ -96,6 +104,11 @@ export function createWatchManager({ store, reviewState, emitEvent, deleteSchedu
   async function cancelWatch(watchId) {
     const watch = findWatch(watchId)
     if (!watch) throw new Error(`watch "${watchId}" not found — call watch_list to see active watches`)
+    const pending = inFlight.get(watchId)
+    if (pending !== undefined) inFlight.delete(watchId)
+    watch.status = 'terminal'
+    watch.terminalReason = 'cancelled'
+    watch.terminalAt = clock()
     await deleteSchedule({ scheduleId: watch.scheduleId, watchId })
     store.state.watches = store.state.watches.filter(candidate => candidate.watchId !== watchId)
     store.save()

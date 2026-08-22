@@ -20,25 +20,30 @@ export const APPROVAL_REQUIRED = Object.freeze([
   'watch_delete_all',
 ])
 
-export function checkToolCall(name, args = {}) {
+const AUTONOMY_LEVEL_TOOLS = Object.freeze({
+  1: Object.freeze([]),
+  2: AUTONOMOUS_TOOLS,
+})
+
+export function checkToolCall(name, args = {}, { autonomyLevel = 2 } = {}) {
   if ((name === 'tui_select' || name === 'tui_keypress') && args.submit === true) {
     return { allowed: false, reason: `tool "${name}" cannot submit terminal input without explicit user approval` }
   }
-  if (AUTONOMOUS_TOOLS.includes(name)) return { allowed: true }
+  if ((AUTONOMY_LEVEL_TOOLS[autonomyLevel] ?? AUTONOMOUS_TOOLS).includes(name)) return { allowed: true }
   if (APPROVAL_REQUIRED.some(entry => entry === name || entry.startsWith(`${name}:`))) {
     return { allowed: false, reason: `tool "${name}" is destructive and requires explicit user approval` }
   }
-  return { allowed: false, reason: `tool "${name}" is not on the personal-assistant autonomy allow-list` }
+  return { allowed: false, reason: `tool "${name}" is not on the personal-assistant autonomy allow-list for level ${autonomyLevel}` }
 }
 
 // Level-2 enforcement seam: wraps every supervisor tool spec's callback with
 // checkToolCall. V1 has no approval UI, so a refused call returns a
 // structured refusal WITHOUT executing the callback.
-export function enforcePermissions(specs, { logger } = {}) {
+export function enforcePermissions(specs, { autonomyLevel = 2, logger } = {}) {
   return specs.map(spec => ({
     ...spec,
     callback: async (input, ...rest) => {
-      const decision = checkToolCall(spec.name, input)
+      const decision = checkToolCall(spec.name, input, { autonomyLevel })
       if (!decision.allowed) {
         logger?.warn?.(`personal-assistant: refused ${spec.name}: ${decision.reason}`)
         return { ok: false, reason: 'approval_required', message: decision.reason }

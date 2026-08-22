@@ -64,6 +64,13 @@ test('sessions_list filters by recent_seconds', async () => {
   assert.deepEqual(result.sessions.map(s => s.sessionId), ['session-new-000000001'])
 })
 
+test('sessions_list rejects non-positive recent_seconds', async () => {
+  const { byName } = setup()
+  await assert.rejects(() => byName.sessions_list.callback({ recent_seconds: -1 }), /recent_seconds must be a positive integer/)
+  await assert.rejects(() => byName.sessions_list.callback({ recent_seconds: 0 }), /recent_seconds must be a positive integer/)
+  await assert.rejects(() => byName.sessions_list.callback({ recent_seconds: 1.5 }), /recent_seconds must be a positive integer/)
+})
+
 test('session_send auto mode: followup for idle, inject for running, steer when urgent', async () => {
   const { byName, running, idle } = setup()
   const sentIdle = await byName.session_send.callback({ session_id: idle.id, message: 'hello' })

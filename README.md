@@ -86,10 +86,10 @@ The package installs its runtime dependencies (`@strands-agents/sdk` and `openai
 | `strands.apiKeyEnv` | `ASSISTANT_API_KEY` | name of the env var holding the key |
 | `strands.maxTurnsPerInvocation` | `8` | supervisor loop bound |
 | `personality.preset` | `friendly` | style only; `custom` requires `personality.customPrompt` |
-| `notifications.*` | all `true` except `ciPassed: false` | per-kind toggles (completed, inputRequired, failed, blocked, reviewReceived, ciFailed, ciPassed) |
+| `notifications.*` | all `true` | per-kind toggles (completed, inputRequired, failed, blocked, reviewReceived) |
 | `github.codexActorLogins` | `[codex]` | exact, case-insensitive login match |
 | `github.defaultWatchIntervalSeconds` | `300` | minimum 300 |
-| `permissions.autonomyLevel` | `2` | Level-2 only: acts autonomously, destructive actions and TUI submission refuse |
+| `permissions.autonomyLevel` | `2` | `1` = conservative (ask before acting), `2` = acts autonomously; destructive actions and TUI submission refuse at both levels. Unknown config fields are rejected at load time |
 
 **State file:** friendly names, PR associations, the delivered-event dedupe cache, and durable watches persist per profile in `$DSH_HOME/profiles/<profile>/personal-assistant-state.json` (`~/.dsh/...` when `DSH_HOME` is unset; override with the `DSH_PERSONAL_ASSISTANT_STATE` env var).
 

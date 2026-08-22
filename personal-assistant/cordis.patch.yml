@@ -17,8 +17,6 @@
           failed: true
           blocked: true
           reviewReceived: true
-          ciFailed: true
-          ciPassed: false
         github:
           codexActorLogins:
             - codex

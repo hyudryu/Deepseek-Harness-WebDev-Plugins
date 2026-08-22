@@ -116,6 +116,19 @@ test('plugin-routed user instructions refresh currentTask', () => {
   assert.equal(index.get('session-aaa').currentTask, 'Fix the follow-up review findings')
 })
 
+test('task-derived friendly name and currentTask survive a restart', () => {
+  const store = createMemoryStore()
+  const index = new SessionIndex({ store })
+  index.noteAgentCreated({ agent: fakeAgent('session-aaa', '/work/app') })
+  index.noteSessionEvent({ id: 'session-aaa' }, userEvent('Implement toolbar enhancement'))
+  assert.equal(store.state.sessions['session-aaa'].task, 'Implement toolbar enhancement')
+
+  const restored = new SessionIndex({ store })
+  restored.noteAgentCreated({ agent: fakeAgent('session-aaa', '/work/app') })
+  assert.equal(restored.get('session-aaa').friendlyName, 'Toolbar enhancement')
+  assert.equal(restored.get('session-aaa').currentTask, 'Implement toolbar enhancement')
+})
+
 test('control session is excluded from events and records', () => {
   const index = new SessionIndex({ excludeSessionId: 'control-id', store: createMemoryStore() })
   index.noteAgentCreated({ agent: fakeAgent('control-id', '/work/app') })

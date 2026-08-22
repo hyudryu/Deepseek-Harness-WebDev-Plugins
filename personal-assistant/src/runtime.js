@@ -118,7 +118,7 @@ export class PersonalAssistantRuntime {
       ...createTuiToolSpecs({ sessionIndex: this.sessionIndex, bridge: this.bridge }),
       ...createGithubToolSpecs({ github: this.github, config: this.config }),
       ...createWatchToolSpecs({ watchManager: this.watchManager, scheduleBridge: this.scheduleBridge, config: this.config }),
-    ], { logger: this.logger })
+    ], { autonomyLevel: this.config.permissions.autonomyLevel, logger: this.logger })
     const tools = specs.map(spec => tool(spec))
     this.supervisor = createSupervisorAgent(this.config, { systemPrompt, tools })
 

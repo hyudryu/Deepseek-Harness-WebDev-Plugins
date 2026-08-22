@@ -21,8 +21,6 @@ export const DEFAULTS = Object.freeze({
     failed: true,
     blocked: true,
     reviewReceived: true,
-    ciFailed: true,
-    ciPassed: false,
   }),
   github: Object.freeze({
     codexActorLogins: Object.freeze(['codex']),
@@ -126,7 +124,9 @@ function normalizePermissions(value) {
   const input = objectValue(value, 'permissions')
   rejectUnknownKeys(input, Object.keys(DEFAULTS.permissions), 'permissions')
   const level = input.autonomyLevel === undefined ? DEFAULTS.permissions.autonomyLevel : input.autonomyLevel
-  if (level !== 2) throw new Error('permissions.autonomyLevel currently supports only Level 2')
+  if (!Number.isInteger(level) || level < 1 || level > 2) {
+    throw new Error('permissions.autonomyLevel supports only 1 and 2')
+  }
   return { autonomyLevel: level }
 }
 

@@ -55,5 +55,6 @@ test('checkToolCall verdicts', () => {
   assert.equal(checkToolCall('tui_select', { submit: true }).allowed, false)
   assert.equal(checkToolCall('tui_keypress', { submit: true }).allowed, false)
   assert.equal(checkToolCall('watch_delete_all').allowed, false)
+  assert.equal(checkToolCall('session_send', {}, { autonomyLevel: 1 }).allowed, false)
   assert.ok(checkToolCall('unknown').reason.length > 0)
 })

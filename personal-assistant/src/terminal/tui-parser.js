@@ -21,7 +21,8 @@ const LOOSE_MARKER_PATTERN = /[>❯▶›]/
 const INVERSE_PATTERN = /\x1b\[(?:[0-9;]*;)?7(?:;[0-9;]*)?m/
 
 function indentOf(line) {
-  return line.length - line.trimStart().length
+  const visible = stripAnsi(line)
+  return visible.length - visible.trimStart().length
 }
 
 // Contiguous block of candidate option lines around `anchorIndex`: lines at
@@ -56,21 +57,34 @@ function menu(lines, start, end, selectedIndex, confidence) {
   return { options, selectedIndex, confidence }
 }
 
-// Cursor-marker path: exactly one marked line inside a ≥2-line block is a
-// high-confidence menu. Multiple marked lines, a lone candidate line, or
-// markers found only mid-text are ambiguous → low confidence.
-function markerMenu(lines) {
-  const marked = []
-  for (let i = 0; i < lines.length; i += 1) {
-    const match = MARKER_PATTERN.exec(lines[i])
-    if (match) marked.push({ line: i, contentColumn: match[1].length + match[2].length + match[3].length })
-  }
-  if (marked.length > 0) {
-    const anchor = marked[0]
-    const { start, end } = collectBlock(lines, anchor.line, anchor.contentColumn)
+function markerBlocks(lines) {
+  const blocks = []
+  const covered = new Set()
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = MARKER_PATTERN.exec(lines[index])
+    if (!match) continue
+    const contentColumn = match[1].length + match[2].length + match[3].length
+    const { start, end } = collectBlock(lines, index, contentColumn)
+    const key = `${start}:${end}`
+    if (covered.has(key)) continue
+    covered.add(key)
     const { options, markedIndexes } = blockOptions(lines, start, end)
-    const confidence = options.length >= 2 && markedIndexes.length === 1 ? 'high' : 'low'
-    return { options, selectedIndex: markedIndexes[0] ?? 0, confidence }
+    blocks.push({ start, end, options, markedIndexes })
+  }
+  return blocks
+}
+
+// Cursor-marker path: choose the bottom-most cursor menu deterministically.
+// Multiple cursor-marked blocks are ambiguous and downgraded to low.
+function markerMenu(lines) {
+  const blocks = markerBlocks(lines)
+  if (blocks.length > 0) {
+    const block = blocks.at(-1)
+    const { options, markedIndexes, start, end } = block
+    const selectedIndex = markedIndexes.length === 0 ? 0 : markedIndexes[markedIndexes.length - 1]
+    const ambiguous = blocks.length > 1 || markedIndexes.length !== 1
+    const confidence = (options.length >= 2 && !ambiguous) ? 'high' : 'low'
+    return menu(lines, start, end, selectedIndex, confidence)
   }
   // Mid-text markers: something menu-like exists but no usable cursor line.
   const loose = lines.findIndex(line => LOOSE_MARKER_PATTERN.test(line) && line.trim() !== '')
@@ -80,6 +94,28 @@ function markerMenu(lines) {
   return menu(lines, start, end, loose - start, 'low')
 }
 
+function inverseBlocks(lines) {
+  const blocks = []
+  const covered = new Set()
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!INVERSE_PATTERN.test(lines[i])) continue
+    const { start, end } = collectBlock(lines, i, indentOf(lines[i]))
+    const key = `${start}:${end}`
+    if (covered.has(key)) continue
+    covered.add(key)
+    const optionLines = lines.slice(start, end + 1)
+    blocks.push({
+      start,
+      end,
+      optionLines,
+      inverseIndexes: optionLines
+        .map((line, offset) => (INVERSE_PATTERN.test(line) ? offset : undefined))
+        .filter(index => index !== undefined),
+    })
+  }
+  return blocks
+}
+
 // Inverse-video path (fallback when no cursor markers exist): one SGR-7 line
 // inside a ≥2-line block of same-indent siblings is a high-confidence menu.
 // Needs the raw (pre-strip) text; clean/raw line correspondence holds because
@@ -87,17 +123,15 @@ function markerMenu(lines) {
 function inverseMenu(cleanLines, rawText) {
   if (typeof rawText !== 'string') return undefined
   const rawLines = rawText.split('\n')
-  const inverse = []
-  for (let i = 0; i < rawLines.length && i < cleanLines.length; i += 1) {
-    if (INVERSE_PATTERN.test(rawLines[i]) && cleanLines[i].trim() !== '') inverse.push(i)
-  }
-  if (inverse.length === 0) return undefined
-  const anchor = inverse[0]
-  const { start, end } = collectBlock(cleanLines, anchor, indentOf(cleanLines[anchor]))
-  if (inverse.length > 1 || end - start < 1) {
-    return menu(cleanLines, start, end, anchor - start, 'low')
-  }
-  return menu(cleanLines, start, end, anchor - start, 'high')
+  const blocks = inverseBlocks(rawLines)
+  if (blocks.length === 0) return undefined
+  const block = blocks.at(-1)
+  if (block.end - block.start < 1) return undefined
+  const options = blockOptions(cleanLines, block.start, block.end).options
+  const ambiguous = blocks.length > 1 || block.inverseIndexes.length !== 1
+  const selectedIndex = block.inverseIndexes.length > 0 ? block.inverseIndexes[0] : 0
+  if (options.length < 2) return undefined
+  return menu(cleanLines, block.start, block.end, selectedIndex, ambiguous ? 'low' : 'high')
 }
 
 // Returns { options: [{ index (1-based), label }], selectedIndex (0-based),

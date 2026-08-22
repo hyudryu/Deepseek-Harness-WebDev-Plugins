@@ -44,3 +44,11 @@ test('permissions are independent of personality', () => {
     assert.equal(checkToolCall('github_merge_pr', {}).allowed, false, preset)
   }
 })
+
+test('the configured autonomy level is declared in the prompt', () => {
+  const level1 = buildSystemPrompt(normalizeConfig({ permissions: { autonomyLevel: 1 } }))
+  assert.ok(level1.includes('Level-1'))
+  assert.ok(!level1.includes('Level-2 autonomy'))
+  const level2 = buildSystemPrompt(normalizeConfig({ permissions: { autonomyLevel: 2 } }))
+  assert.ok(level2.includes('Level-2 autonomy'))
+})

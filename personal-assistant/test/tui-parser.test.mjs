@@ -56,6 +56,20 @@ test('ambiguous menus are low confidence', () => {
   assert.equal(mid.confidence, 'low')
 })
 
+test('scrollback with two cursor-marked menus is ambiguous and bottom-most wins', () => {
+  const scrollback = [
+    '> stale one',
+    '  stale two',
+    '$ npm run build',
+    'building...',
+    '> fresh one',
+    '  fresh two',
+  ].join('\n')
+  const menu = parseMenu(scrollback)
+  assert.equal(menu.confidence, 'low')
+  assert.deepEqual(menu.options.map(option => option.label), ['fresh one', 'fresh two'])
+})
+
 test('non-menu text returns undefined', () => {
   assert.equal(parseMenu('$ npm test\nall tests pass\n$'), undefined)
   assert.equal(parseMenu(''), undefined)
